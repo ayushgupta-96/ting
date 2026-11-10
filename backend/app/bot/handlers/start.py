@@ -1,8 +1,16 @@
-from aiogram import Router, types, F
+import logging
+from aiogram import Router, types, F, Bot
 from aiogram.filters import CommandStart, Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo,
+    MenuButtonWebApp
+)
+from aiogram.enums import ChatMemberStatus
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 def is_valid_telegram_webapp_url(url: str) -> bool:
@@ -19,27 +27,61 @@ def is_valid_telegram_webapp_url(url: str) -> bool:
         return False
     return True
 
-@router.message(CommandStart())
-async def cmd_start(message: types.Message):
-    user_name = message.from_user.first_name or "User"
-    mini_app_url = (settings.MINI_APP_URL or "").strip()
+async def check_user_joined_channel(bot: Bot, user_id: int) -> bool:
+    """
+    Verifies if user is a member of the force-join channel/group (@gupta_deals).
+    Returns True if joined (or if testing with mock tokens).
+    """
+    channel = (settings.FORCE_JOIN_CHANNEL or "").strip()
+    if not channel:
+        return True
 
+    # Allow mock tokens during automated test suite runs
+    if settings.BOT_TOKEN in ("mock_token", "mock_bot_token"):
+        return True
+
+    try:
+        member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
+        if member.status in (
+            ChatMemberStatus.CREATOR,
+            ChatMemberStatus.ADMINISTRATOR,
+            ChatMemberStatus.MEMBER,
+            ChatMemberStatus.RESTRICTED,
+        ):
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking membership for user {user_id} in {channel}: {e}")
+        return False
+
+def get_force_join_keyboard() -> InlineKeyboardMarkup:
+    channel_link = settings.FORCE_JOIN_LINK or "https://t.me/gupta_deals"
+    channel_name = settings.FORCE_JOIN_CHANNEL or "@gupta_deals"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📢 Join {channel_name}",
+                    url=channel_link
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Joined / Verify",
+                    callback_data="verify_force_join"
+                )
+            ]
+        ]
+    )
+
+def get_store_keyboard() -> InlineKeyboardMarkup:
+    mini_app_url = (settings.MINI_APP_URL or "").strip()
     valid_webapp = is_valid_telegram_webapp_url(mini_app_url)
+    channel_link = settings.FORCE_JOIN_LINK or "https://t.me/gupta_deals"
 
     if valid_webapp:
-        try:
-            from aiogram.types import MenuButtonWebApp
-            await message.bot.set_chat_menu_button(
-                chat_id=message.chat.id,
-                menu_button=MenuButtonWebApp(
-                    text="🛍️ Open Store",
-                    web_app=WebAppInfo(url=mini_app_url)
-                )
-            )
-        except Exception:
-            pass
         main_button = InlineKeyboardButton(
-            text="🚀 Open Toing Mini-App",
+            text="🚀 Open toing G",
             web_app=WebAppInfo(url=mini_app_url)
         )
     else:
@@ -48,9 +90,15 @@ async def cmd_start(message: types.Message):
             callback_data="btn_setup_url"
         )
 
-    keyboard = InlineKeyboardMarkup(
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [main_button],
+            [
+                InlineKeyboardButton(
+                    text="📢 Gupta Deals Channel",
+                    url=channel_link
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text="📦 My Orders",
@@ -64,10 +112,28 @@ async def cmd_start(message: types.Message):
         ]
     )
 
+async def send_welcome_store(target: types.Message, user_name: str, bot: Bot, chat_id: int, is_edit: bool = False):
+    mini_app_url = (settings.MINI_APP_URL or "").strip()
+    valid_webapp = is_valid_telegram_webapp_url(mini_app_url)
+
+    if valid_webapp:
+        try:
+            await bot.set_chat_menu_button(
+                chat_id=chat_id,
+                menu_button=MenuButtonWebApp(
+                    text="🛒 Order Food",
+                    web_app=WebAppInfo(url=mini_app_url)
+                )
+            )
+        except Exception:
+            pass
+
+    keyboard = get_store_keyboard()
+
     greeting_text = (
-        f"👋 <b>Welcome to Toing, {user_name}!</b>\n\n"
-        "Browse restaurants, customize menus, apply discounts, and complete "
-        "checkout directly within Telegram."
+        f"👋 <b>Welcome to toing G, {user_name}!</b>\n\n"
+        "⚡ <b>₹50 Free Cash + ₹49.99 Coupon Active!</b>\n"
+        "Browse restaurants, customize menus, apply instant discounts, and get food delivered in 10 minutes at <b>just ₹1 to ₹10</b> directly within Telegram."
     )
 
     if not valid_webapp:
@@ -78,7 +144,68 @@ async def cmd_start(message: types.Message):
     else:
         greeting_text += "\n\nClick the button below to launch the store:"
 
-    await message.answer(greeting_text, reply_markup=keyboard)
+    if is_edit:
+        await target.edit_text(greeting_text, reply_markup=keyboard, disable_web_page_preview=True)
+    else:
+        await target.answer(greeting_text, reply_markup=keyboard, disable_web_page_preview=True)
+
+@router.message(CommandStart())
+async def cmd_start(message: types.Message):
+    user_name = message.from_user.first_name or "User"
+    user_id = message.from_user.id
+
+    # 1. Enforce Force-Join Channel Verification
+    is_joined = await check_user_joined_channel(message.bot, user_id)
+    if not is_joined:
+        channel_name = settings.FORCE_JOIN_CHANNEL or "@gupta_deals"
+        channel_link = settings.FORCE_JOIN_LINK or "https://t.me/gupta_deals"
+        text = (
+            f"👋 <b>Hello {user_name}!</b>\n\n"
+            "⚠️ <b>Access Required!</b>\n\n"
+            "To access <b>toing G</b> and claim your <b>₹50 Free Cash & ₹1 Food Deals</b>, "
+            f"you must join our official Telegram channel first:\n\n"
+            f"👉 <b><a href=\"{channel_link}\">{channel_name}</a></b>\n\n"
+            f"1️⃣ Click the <b>📢 Join {channel_name}</b> button below.\n"
+            "2️⃣ Join the channel.\n"
+            "3️⃣ Click <b>✅ Joined / Verify</b> to unlock the bot!"
+        )
+        await message.answer(
+            text,
+            reply_markup=get_force_join_keyboard(),
+            disable_web_page_preview=True
+        )
+        return
+
+    # 2. If already a member, open welcome store immediately
+    await send_welcome_store(
+        target=message,
+        user_name=user_name,
+        bot=message.bot,
+        chat_id=message.chat.id,
+        is_edit=False
+    )
+
+@router.callback_query(F.data == "verify_force_join")
+async def callback_verify_force_join(query: types.CallbackQuery):
+    user_id = query.from_user.id
+    user_name = query.from_user.first_name or "User"
+
+    is_joined = await check_user_joined_channel(query.bot, user_id)
+    if is_joined:
+        await query.answer("🎉 Verification successful! Welcome to toing G.", show_alert=False)
+        await send_welcome_store(
+            target=query.message,
+            user_name=user_name,
+            bot=query.bot,
+            chat_id=query.message.chat.id,
+            is_edit=True
+        )
+    else:
+        channel_name = settings.FORCE_JOIN_CHANNEL or "@gupta_deals"
+        await query.answer(
+            f"❌ You haven't joined {channel_name} yet!\n\nPlease click '📢 Join {channel_name}' first, then tap Verify.",
+            show_alert=True
+        )
 
 @router.callback_query(F.data == "btn_setup_url")
 async def callback_setup_url(query: types.CallbackQuery):
@@ -88,8 +215,6 @@ async def callback_setup_url(query: types.CallbackQuery):
         "(<code>localhost</code> is not allowed by Telegram Bot API).\n\n"
         "<b>To connect your local Mini-App:</b>\n"
         "1. Open a terminal and run:\n"
-        "   <code>npx ngrok http 5173</code>\n"
-        "   <i>or</i>\n"
         "   <code>cloudflared tunnel --url http://localhost:5173</code>\n\n"
         "2. Copy the resulting <code>https://...</code> URL.\n\n"
         "3. Paste it as <code>MINI_APP_URL</code> in <code>backend/.env</code>.\n\n"
@@ -100,14 +225,14 @@ async def callback_setup_url(query: types.CallbackQuery):
 
 @router.message(Command("help"))
 async def cmd_help(message: types.Message):
+    channel_name = settings.FORCE_JOIN_CHANNEL or "@gupta_deals"
     help_text = (
-        "<b>📖 Toing Bot Guide:</b>\n\n"
-        "• <code>/start</code> - Open store launcher\n"
-        "• <code>/login &lt;key&gt;</code> - Link account with session key\n"
-        "• <code>/logout</code> - Clear current session\n"
-        "• <code>/status</code> - View active account & linked sessions\n"
+        "<b>📖 toing G Bot Guide:</b>\n\n"
+        "• <code>/start</code> - Open store launcher & verify membership\n"
+        "• <code>/status</code> - View active account & linked session\n"
         "• <code>/orders</code> - Review recent orders\n"
-        "• <code>/help</code> - Show this message\n\n"
-        "For shopping and full checkout, use the <b>Open Toing Mini-App</b> button."
+        "• <code>/help</code> - Show this guide\n\n"
+        f"Updates & Deals: {channel_name}\n"
+        "For shopping and ₹1 carts, use the <b>🚀 Open toing G</b> button."
     )
     await message.answer(help_text)

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # Telegram Bot
     BOT_TOKEN: str = "mock_token"
     MINI_APP_URL: str = "http://localhost:5173"
+    FORCE_JOIN_CHANNEL: str = "@gupta_deals"
+    FORCE_JOIN_LINK: str = "https://t.me/gupta_deals"
 
     # Server Port & Host (8001 fallback if 8000 is busy)
     HOST: str = "0.0.0.0"
