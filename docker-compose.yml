@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: toing_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: toing_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: toing_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: toing_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8001}:${PORT:-8001}"
+    environment:
+      - PORT=${PORT:-8001}
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@postgres:5432/toing_db
+      - REDIS_URL=redis://redis:6379/0
+      - TOING_BASE_URL=https://storelex.store/toing_web
+      - BOT_TOKEN=${BOT_TOKEN}
+      - MINI_APP_URL=${MINI_APP_URL}
+    env_file:
+      - ./backend/.env
+
+volumes:
+  pgdata:
+  redisdata:
