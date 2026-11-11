@@ -390,12 +390,38 @@ async def delete_account(
 
 @router.get("/me")
 async def get_wallet_info(
-    client: ToingClient = Depends(get_user_toing_client)
+    telegram_id: int = Depends(get_telegram_user_id),
+    x_active_mobile: Optional[str] = Header(None, alias="X-Active-Mobile"),
+    db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """
-    Retrieve user balance, fees, and account metadata.
+    Retrieve user balance, fees, and account metadata directly from SQLite.
+    Zero calls to rival server.
     """
-    return await client.get_me()
+    stmt = select(AccountSession).where(AccountSession.telegram_id == telegram_id)
+    if x_active_mobile:
+        stmt = stmt.where(AccountSession.mobile == x_active_mobile)
+    stmt = stmt.order_by(AccountSession.id.desc())
+    acc = (await db.execute(stmt)).scalars().first()
+
+    if not acc:
+        stmt_any = select(AccountSession).where(AccountSession.telegram_id == telegram_id).order_by(AccountSession.id.desc())
+        acc = (await db.execute(stmt_any)).scalars().first()
+
+    return {
+        "success": True,
+        "name": acc.name if acc else "User",
+        "mobile": acc.mobile if acc else (x_active_mobile or ""),
+        "customer_id": acc.customer_id if acc else "",
+        "status": acc.status if acc else "fresh",
+        "wallet": {
+            "balance": 0.0,
+            "free_cash": 50.0,
+            "currency": "INR"
+        },
+        "fee_percent": 0.0,
+        "is_authenticated": bool(acc)
+    }
 
 @router.get("/sessions")
 async def get_sessions(

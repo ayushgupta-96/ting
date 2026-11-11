@@ -609,7 +609,7 @@ class SwiggyDirectClient:
                         total_dishes = 0
                         for m in matches:
                             chunk = m.group("body")
-                            id_m = re.search(rb'^\n([\x01-\x20])([0-9a-zA-Z_-]+)', chunk)
+                            id_m = re.search(rb'\n([\x01-\x20])([0-9a-zA-Z_-]{4,20})\x12', chunk)
                             dish_id = id_m.group(2).decode("utf-8", "ignore") if id_m else ""
 
                             name_m = re.search(rb'\x12([\x01-\x80])([^\x00-\x1f\x7f-\xff]{2,80})', chunk)
@@ -888,6 +888,7 @@ class SwiggyDirectClient:
         lng: float = 77.4987012,
         cart_id: Optional[str] = None,
         cooking_instructions: Optional[str] = None,
+        coupon_code: Optional[str] = None,
         tid: Optional[str] = None,
         token: Optional[str] = None,
         sid: Optional[str] = None,
@@ -929,6 +930,13 @@ class SwiggyDirectClient:
                 "offer_ids": []
             })
 
+        coupon_req = []
+        if coupon_code and coupon_code.strip():
+            coupon_req.append({
+                "coupon_code": coupon_code.strip(),
+                "operation_type": "APPLY"
+            })
+
         body = {
             "address_nudge_check": False,
             "batch_opt_in": False,
@@ -956,7 +964,7 @@ class SwiggyDirectClient:
             "subscriptionItems": [],
             "user_flow_info": {},
             "cart_saved_preferences": {},
-            "cart_update_coupon_request": [],
+            "cart_update_coupon_request": coupon_req,
             "created_from_group_cart": False,
             "is_menu_to_cart_transition": True
         }
@@ -1021,35 +1029,212 @@ class SwiggyDirectClient:
             resp = await client.post(url, headers=headers, json=body)
             if resp.status_code == 200:
                 res = resp.json()
-                data = res.get("data", {})
+                data = res.get("data") or {}
+                status_code = res.get("statusCode", 0)
+                status_message = res.get("statusMessage") or ""
+                title_message = res.get("titleMessage") or ""
+
+                is_serviceable = True
+                unserviceable_reason = ""
+
+                # Check if location is unserviceable
+                if status_code != 0:
+                    is_serviceable = False
+                    unserviceable_reason = status_message or title_message or "Restaurant is not serviceable at this address."
+                elif data:
+                    srv = data.get("serviceability")
+                    if isinstance(srv, dict) and srv.get("isServiceable") is False:
+                        is_serviceable = False
+                        unserviceable_reason = srv.get("statusMessage") or "Restaurant is not serviceable at this address."
+                    elif data.get("unserviceable_reason"):
+                        is_serviceable = False
+                        unserviceable_reason = str(data.get("unserviceable_reason"))
+
                 new_cart_id = str(data.get("cartId") or data.get("originalCartId") or "")
                 
-                item_total = data.get("item_total") or data.get("itemTotalBillPresentation") or (data.get("cart_subtotal_without_packing", 0))
-                order_total = data.get("order_total") or data.get("cart_total") or 0
-                delivery_fee = data.get("delivery_charges") or data.get("positiveDeliveryChargesExclusive") or 0
-                taxes = data.get("taxesAndCharges") or data.get("total_tax") or 0
-                discount = data.get("discount_total") or data.get("trade_discount_total") or 0
+                item_total = float(data.get("item_total") or data.get("itemTotalBillPresentation") or data.get("cart_subtotal_without_packing") or 0.0)
+                order_total = float(data.get("order_total") or data.get("cart_total") or 0.0)
+                delivery_fee = float(data.get("delivery_charges") or data.get("positiveDeliveryChargesExclusive") or 0.0)
+                taxes = float(data.get("taxesAndCharges") or data.get("total_tax") or 0.0)
+                discount = float(data.get("discount_total") or data.get("trade_discount_total") or 0.0)
+                trade_discount = float(data.get("trade_discount_total") or 0.0)
+                coupon_discount = float(data.get("coupon_discount_total") or 0.0)
+                applied_coupon_code = str(data.get("coupon_code") or "")
+                
+                free_cash_val = trade_discount if trade_discount > 0 else 0.0
+                reward_label = data.get("offerCashRewardDisplayText") or ""
+                reward_savings_info = data.get("offerPresentationInfo", {}).get("rewardOffersSavingsInfo") if isinstance(data.get("offerPresentationInfo"), dict) else None
+                if reward_savings_info and reward_savings_info.get("title"):
+                    reward_label = reward_savings_info.get("title")
+
+                # Build synchronized live bill lines
+                bill_lines = [
+                    {"key": "item_total", "label": "Item Total", "value": f"{item_total:.2f}", "negative": False, "total": False},
+                    {"key": "delivery", "label": "Delivery Fee", "value": "FREE" if delivery_fee == 0 else f"{delivery_fee:.2f}", "negative": False, "total": False},
+                ]
+                if free_cash_val > 0:
+                    bill_lines.append({
+                        "key": "offerCashReward",
+                        "label": "Free Cash",
+                        "note": reward_label,
+                        "value": f"{free_cash_val:.2f}",
+                        "negative": True,
+                        "total": False
+                    })
+                if coupon_discount > 0:
+                    bill_lines.append({
+                        "key": "coupon_discount",
+                        "label": f"Coupon ({applied_coupon_code or coupon_code})",
+                        "value": f"{coupon_discount:.2f}",
+                        "negative": True,
+                        "total": False
+                    })
+                if taxes > 0:
+                    bill_lines.append({
+                        "key": "gst",
+                        "label": "Government Taxes & Charges",
+                        "value": f"{taxes:.2f}",
+                        "negative": False,
+                        "total": False
+                    })
+                bill_lines.append({
+                    "key": "grand_total",
+                    "label": "To Pay",
+                    "value": f"{order_total:.2f}",
+                    "negative": False,
+                    "total": True
+                })
 
                 return {
                     "success": True,
+                    "is_serviceable": is_serviceable,
+                    "unserviceable_reason": unserviceable_reason,
                     "cart_id": new_cart_id,
                     "originalCartId": new_cart_id,
                     "cart_value": item_total,
                     "bill": {
-                        "item_total": float(item_total),
-                        "order_total": float(order_total),
-                        "to_pay": float(order_total),
-                        "delivery_charges": float(delivery_fee),
-                        "taxes_and_charges": float(taxes),
-                        "discount": float(discount),
-                        "coupon_discount": float(data.get("coupon_discount_total", 0)),
-                        "trade_discount": float(discount),
-                        "total": float(order_total)
+                        "item_total": item_total,
+                        "order_total": order_total,
+                        "to_pay": order_total,
+                        "delivery_charges": delivery_fee,
+                        "taxes_and_charges": taxes,
+                        "discount": discount,
+                        "free_cash": free_cash_val,
+                        "coupon_discount": coupon_discount,
+                        "trade_discount": trade_discount,
+                        "total": order_total,
+                        "is_serviceable": is_serviceable,
+                        "unserviceable_reason": unserviceable_reason
+                    },
+                    "bill_lines": bill_lines,
+                    "free_cash": {
+                        "applicable": free_cash_val > 0,
+                        "amount": free_cash_val,
+                        "label": reward_label
+                    },
+                    "coupon": {
+                        "code": applied_coupon_code or (coupon_code if coupon_discount > 0 else ""),
+                        "discount": coupon_discount,
+                        "valid": bool(data.get("is_coupon_valid", 0) or coupon_discount > 0)
                     },
                     "data": data
                 }
             else:
                 raise HTTPException(status_code=resp.status_code, detail=f"Swiggy Cart Error: {resp.text[:200]}")
+
+    async def fetch_coupons(
+        self,
+        restaurant_id: str,
+        cart_value: float,
+        lat: float = 28.4535279,
+        lng: float = 77.4987012,
+        address_id: str = "",
+        coupon_code: str = "",
+        tid: Optional[str] = None,
+        token: Optional[str] = None,
+        sid: Optional[str] = None,
+        device_id: Optional[str] = None,
+        customer_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch authentic coupons from payments.swiggy.com/api/v3/fetch-coupons
+        """
+        url = f"https://payments.swiggy.com/api/v3/fetch-coupons?source_page=cart&restaurant_id={restaurant_id}&cart_value={int(cart_value)}&coupon_code={coupon_code}&lat={lat}&lng={lng}&sub_page="
+        self.tid = tid or self.tid
+        self.token = token or self.token
+        self.sid = sid or self.sid
+        self.device_id = device_id or self.device_id
+
+        headers = {
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "accessibility-enabled": "false",
+            "addressid": address_id,
+            "cartaddressid": address_id,
+            "cartentry": "Cart_Crouton_Menu",
+            "cartpageprefetch": "false",
+            "cartsource": "Menu",
+            "category": "food",
+            "cityid": "10459",
+            "client-id": "Swiggy-Android",
+            "deviceid": self.device_id,
+            "Host": "payments.swiggy.com",
+            "lat": str(lat),
+            "latitude": str(lat),
+            "lng": str(lng),
+            "longitude": str(lng),
+            "m_id": "CHECKOUT",
+            "marketplacebusinessline": "Regular",
+            "marketplacecategory": "FOOD",
+            "marketplaceid": "1",
+            "Origin": "https://payments.swiggy.com",
+            "os-version": "17",
+            "platform": "Swiggy-Android",
+            "Referer": "https://payments.swiggy.com/?flow=cart&custom_back=true",
+            "referrer": "menu",
+            "sid": self.sid or "",
+            "swuid": self.device_id,
+            "tid": self.tid or "",
+            "token": self.token or "",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone64_x86_64 Build/CE2A.260420.019; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/145.0.7632.218 Mobile Safari/537.36",
+            "userid": str(customer_id or ""),
+            "version-code": "1875",
+            "x-channel": "toing-app",
+            "x-checkout-webview": "android",
+            "x-client-id": "web-payment",
+            "x-origin-id": "android",
+            "X-Requested-With": "in.swiggy.android.toing",
+            "x-theme": "toing",
+            "x-web-checkout-flow": "cart"
+        }
+
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                coupons = []
+                for c in data.get("success", {}).get("cards", []):
+                    card_data = c.get("card", {}).get("card", {})
+                    for cpn in card_data.get("coupons", []):
+                        code = cpn.get("couponCode") or cpn.get("title") or ""
+                        if code:
+                            coupons.append({
+                                "code": code,
+                                "title": cpn.get("title") or code,
+                                "subtitle": cpn.get("subtitle") or "",
+                                "description": cpn.get("description") or "",
+                                "discount": cpn.get("discount") or 0,
+                                "ribbon": cpn.get("ribbonText") or "",
+                                "applicable": bool(cpn.get("applicable", True)),
+                                "logo": format_swiggy_image_url(cpn.get("logo") or "", 120),
+                                "terms": cpn.get("tnc", {}).get("bulletTexts", []) if isinstance(cpn.get("tnc"), dict) else []
+                            })
+                return {
+                    "success": True,
+                    "coupons": coupons,
+                    "count": len(coupons)
+                }
+            return {"success": True, "coupons": [], "count": 0}
 
     async def get_payment_options(
         self,

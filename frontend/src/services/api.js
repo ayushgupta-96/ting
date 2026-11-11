@@ -109,6 +109,7 @@ export const api = {
   // Orders & Checkout
   getOrders: (mobile) => apiClient.get('/orders', { params: { mobile } }),
   getBestCoupon: (payload) => apiClient.post('/checkout/best_coupon', payload),
+  fetchCoupons: (payload) => apiClient.post('/checkout/coupons', payload),
   applyCoupon: (payload) => apiClient.post('/checkout/apply_coupon', payload),
   getPaymentOptions: (payload) => apiClient.post('/checkout/payment_options', payload),
   placeOrder: (payload) => apiClient.post('/checkout/place', payload),

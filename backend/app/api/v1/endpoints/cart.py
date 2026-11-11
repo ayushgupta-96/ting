@@ -90,6 +90,7 @@ async def calculate_cart(
                 lng=float(req_dict.get("lng", 77.4987012)),
                 cart_id=req_dict.get("cart_id"),
                 cooking_instructions=req_dict.get("cooking"),
+                coupon_code=req_dict.get("coupon_code") or req_dict.get("coupon"),
                 customer_id=eff_cust_id
             )
             if calc_res.get("success"):

@@ -43,6 +43,8 @@ export default function CartTab({
   const [isCalculating, setIsCalculating] = useState(false);
   const [addressAutoDeleted, setAddressAutoDeleted] = useState(false);
   const [cartError, setCartError] = useState(null);
+  const [isServiceable, setIsServiceable] = useState(true);
+  const [unserviceableReason, setUnserviceableReason] = useState('');
 
   // Cart & Pricing State (Strictly dynamic from Toing API)
   const [cartId, setCartId] = useState('');
@@ -145,7 +147,9 @@ export default function CartTab({
       }
       setAddressId(targetAddressId);
 
-      // Step B: Submit Cart to Toing /api/search/cart
+      const effectiveCoupon = forcedCouponCode !== null ? forcedCouponCode : (appliedCoupon?.code || '');
+
+      // Step B: Submit Cart to live calculateCart
       const cartPayload = {
         mobile: mobile,
         restaurant: {
@@ -158,9 +162,11 @@ export default function CartTab({
         },
         items: cartLines.map((l) => ({
           id: String(l.id),
+          menu_item_id: String(l.id),
           name: l.name,
           image_id: l.image_id || '',
           price: Math.round((l.price || 0) * 100),
+          cost: Math.round((l.price || 0) * 100),
           base_price: Math.round((l.base_price || l.price || 0) * 100),
           quantity: l.quantity,
           addons: l.addons || [],
@@ -170,6 +176,7 @@ export default function CartTab({
         cart_id: cartId || '',
         lat: lat,
         lng: lng,
+        coupon_code: effectiveCoupon,
         cooking: cookingRequest,
         incognito: true,
       };
@@ -178,97 +185,72 @@ export default function CartTab({
       const generatedCartId = calcRes?.cart_id || cartId || '';
       if (generatedCartId) setCartId(generatedCartId);
 
-      // Extract accurate raw item total from Toing bill
+      // Check real restaurant serviceability at this address & location
+      if (calcRes?.is_serviceable === false) {
+        setIsServiceable(false);
+        setUnserviceableReason(calcRes.unserviceable_reason || 'Restaurant is not deliverable to this selected address.');
+      } else {
+        setIsServiceable(true);
+        setUnserviceableReason('');
+      }
+
+      // Extract accurate raw item total from bill
       const rawItemTotal = calcRes?.bill?.item_total ?? subtotal;
       setItemTotalAmount(rawItemTotal);
 
-      // Calculate cart value for coupon endpoint (item_total after referral discount)
-      const cartVal =
-        calcRes?.bill?.item_total != null && calcRes?.bill?.discount != null
-          ? Math.max(0, calcRes.bill.item_total - (calcRes.bill.discount - (calcRes.bill.coupon_discount || 0)))
-          : calcRes?.cart_value || rawItemTotal;
+      // Synchronize final payable amount
+      const finalToPay = calcRes?.bill?.to_pay ?? subtotal;
+      setToPayAmount(finalToPay);
 
-      // Step C: Fetch Best Coupon or Apply specific coupon
-      const cpnPayload = {
-        mobile: mobile,
-        cart_id: String(generatedCartId),
-        address_id: targetAddressId,
-        lat: lat,
-        lng: lng,
-        restaurant_id: String(restaurant?.id || ''),
-        cart_value: cartVal,
-      };
-
-      let cpnRes = null;
-      if (forcedCouponCode) {
-        setIsApplyingCoupon(true);
-        cpnRes = await api.applyCoupon({ ...cpnPayload, code: forcedCouponCode });
-      } else {
-        cpnRes = await api.getBestCoupon(cpnPayload);
-      }
-
-      // Step D: Synchronize dynamic available coupons list from Toing app
-      if (Array.isArray(cpnRes?.coupons)) {
-        setAvailableCoupons(cpnRes.coupons);
-      }
-
-      // Step E: Update applied coupon state
-      if (cpnRes?.coupon && cpnRes.coupon.valid) {
-        setAppliedCoupon(cpnRes.coupon);
-        setCouponToast(`${cpnRes.coupon.code} applied · ₹${cpnRes.coupon.discount} off`);
-        if (forcedCouponCode && onShowToast) {
-          onShowToast('success', cpnRes.coupon.message || `Coupon ${cpnRes.coupon.code} applied!`);
+      // Synchronize bill lines directly from live response
+      if (Array.isArray(calcRes?.bill_lines) && calcRes.bill_lines.length > 0) {
+        setBillLines(calcRes.bill_lines);
+      } else if (calcRes?.bill) {
+        const b = calcRes.bill;
+        const lines = [
+          { key: 'item_total', label: 'Item Total', value: `${b.item_total}`, negative: false, total: false },
+          { key: 'delivery', label: 'Delivery Fee', value: b.delivery_charges === 0 ? 'FREE' : `${b.delivery_charges}`, negative: false, total: false }
+        ];
+        if (b.free_cash && b.free_cash > 0) {
+          lines.push({ key: 'offerCashReward', label: b.free_cash_label || 'Free Cash', value: `${b.free_cash.toFixed(2)}`, negative: true, total: false });
         }
-      } else if (forcedCouponCode && cpnRes?.error) {
-        if (onShowToast) onShowToast('error', cpnRes.error);
-      } else if (!forcedCouponCode && (!cpnRes?.coupon || !cpnRes.coupon.valid)) {
-        // No coupon applies automatically
+        if (b.coupon_discount && b.coupon_discount > 0) {
+          lines.push({ key: 'coupon_discount', label: `Coupon (${b.coupon_code || effectiveCoupon})`, value: `${b.coupon_discount.toFixed(2)}`, negative: true, total: false });
+        }
+        if (b.taxes_and_charges && b.taxes_and_charges > 0) {
+          lines.push({ key: 'gst', label: 'Government Taxes & Charges', value: `${b.taxes_and_charges}`, negative: false, total: false });
+        }
+        lines.push({ key: 'grand_total', label: 'To Pay', value: `${b.to_pay}`, negative: false, total: true });
+        setBillLines(lines);
+      }
+
+      // Update coupon state
+      if (calcRes?.coupon && calcRes.coupon.code) {
+        setAppliedCoupon(calcRes.coupon);
+        setCouponToast(`${calcRes.coupon.code} applied · ₹${calcRes.coupon.discount || 0} off`);
+        if (forcedCouponCode && onShowToast) {
+          onShowToast('success', `Coupon ${calcRes.coupon.code} applied!`);
+        }
+      } else if (forcedCouponCode === '') {
         setAppliedCoupon(null);
         setCouponToast(null);
       }
 
-      // Step F: Synchronize bill lines directly from Toing response
-      const synchronizedLines = cpnRes?.bill_lines || calcRes?.bill_lines;
-      if (Array.isArray(synchronizedLines) && synchronizedLines.length > 0) {
-        setBillLines(synchronizedLines);
-      } else {
-        // Fallback to real bill object if bill_lines array is omitted
-        const billObj = cpnRes?.bill || calcRes?.bill;
-        if (billObj) {
-          const lines = [
-            { key: 'item_total', label: 'Item Total', value: `${billObj.item_total}`, negative: false, total: false },
-          ];
-          if (billObj.delivery != null) {
-            lines.push({
-              key: 'delivery',
-              label: 'Delivery Fee',
-              value: billObj.delivery === 0 ? 'FREE' : `${billObj.delivery}`,
-              strike: billObj.delivery === 0 && billObj.original_delivery ? `${billObj.original_delivery}` : '',
-              negative: false,
-              total: false,
-            });
-          }
-          if (billObj.discount && billObj.discount > (billObj.coupon_discount || 0)) {
-            const fc = billObj.discount - (billObj.coupon_discount || 0);
-            lines.push({ key: 'offerCashReward', label: 'Free Cash', value: `${fc.toFixed(2)}`, negative: true, total: false });
-          }
-          if (billObj.coupon_discount && billObj.coupon_discount > 0) {
-            lines.push({ key: 'coupon_discount', label: 'Coupon Discount', value: `${billObj.coupon_discount.toFixed(2)}`, negative: true, total: false });
-          }
-          if (billObj.gst != null) {
-            lines.push({ key: 'gst', label: 'Government Taxes', value: `${billObj.gst}`, negative: false, total: false });
-          }
-          lines.push({ key: 'grand_total', label: 'To Pay', value: `${billObj.to_pay}`, negative: false, total: true });
-          setBillLines(lines);
+      // Fetch authentic coupons list for this restaurant and cart value
+      try {
+        const cpnRes = await api.fetchCoupons({
+          mobile: mobile,
+          restaurant_id: String(restaurant?.id || ''),
+          cart_value: rawItemTotal,
+          lat: lat,
+          lng: lng,
+          address_id: targetAddressId,
+        });
+        if (Array.isArray(cpnRes?.coupons)) {
+          setAvailableCoupons(cpnRes.coupons);
         }
-      }
-
-      // Step G: Synchronize final payable amount
-      const finalToPay = cpnRes?.bill?.to_pay ?? calcRes?.bill?.to_pay;
-      if (finalToPay != null) {
-        setToPayAmount(finalToPay);
-      } else {
-        setToPayAmount(subtotal);
+      } catch (e) {
+        console.warn('Coupons fetch error:', e);
       }
     } catch (err) {
       console.error('Pricing calculation error:', err);
@@ -288,15 +270,19 @@ export default function CartTab({
     }
   };
 
-  // Run calculation when cart items change, delivery address changes, or when entering Cart Tab (Point 5)
+  // Run calculation when cart items change, delivery address changes, or when entering Cart Tab
   useEffect(() => {
     if (cartLines.length > 0 && activeAddress) {
       calculateAndApplyPricing();
     }
-  }, [isActive, cartLines.length, activeAddress?.id, activeAddress?.lat]);
+  }, [isActive, cartLines.length, activeAddress?.id, activeAddress?.lat, activeAddress?.lng]);
 
   // 2. Place Order & Open UPI Payment View (Strictly real Toing upstream)
   const handlePayNow = async () => {
+    if (!isServiceable) {
+      if (onShowToast) onShowToast('error', unserviceableReason || 'Restaurant not serviceable at this address.');
+      return;
+    }
     if (!activeAddress) {
       if (onShowToast) onShowToast('error', 'Please select a delivery address first.');
       return;
@@ -892,6 +878,27 @@ export default function CartTab({
         <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
       </div>
 
+      {/* Serviceability Alert Banner */}
+      {!isServiceable && (
+        <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-3xl p-4 flex items-start space-x-3 text-red-700 dark:text-red-400 shadow-sm animate-fade-in">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
+          <div className="flex-1 text-xs">
+            <div className="font-extrabold text-sm text-red-800 dark:text-red-300">
+              Cannot Deliver to Selected Location
+            </div>
+            <p className="mt-1 text-xs text-red-600 dark:text-red-400 leading-relaxed">
+              {unserviceableReason || "This location is outside the outlet's delivery area. Please choose a different delivery address."}
+            </p>
+            <button
+              onClick={onOpenAddressTab}
+              className="mt-2.5 text-xs font-black text-[#7C3AED] dark:text-purple-300 underline hover:opacity-80 block"
+            >
+              Change Delivery Address →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Your Order Card */}
       <div className="bg-white dark:bg-[#1E293B] rounded-3xl p-4 border border-gray-100 dark:border-gray-800 shadow-card space-y-3">
         <div className="flex items-center justify-between">
@@ -1180,14 +1187,20 @@ export default function CartTab({
 
           <button
             onClick={handlePayNow}
-            disabled={isPlacingOrder || isCalculating}
-            className="bg-[#059669] hover:bg-[#047857] text-white font-black text-xs px-6 py-3.5 rounded-2xl shadow-lg flex items-center space-x-2 active:scale-95 transition-all disabled:opacity-50"
+            disabled={isPlacingOrder || isCalculating || !isServiceable}
+            className={`${
+              !isServiceable
+                ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
+                : 'bg-[#059669] hover:bg-[#047857] text-white active:scale-95 shadow-lg'
+            } font-black text-xs px-6 py-3.5 rounded-2xl flex items-center space-x-2 transition-all disabled:opacity-60`}
           >
             {isPlacingOrder ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Creating Order...</span>
               </>
+            ) : !isServiceable ? (
+              <span>Not Serviceable Here</span>
             ) : (
               <>
                 <span>Pay Now</span>
