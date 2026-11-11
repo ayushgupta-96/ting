@@ -127,6 +127,16 @@ async def search_top_level(
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
 ) -> Dict[str, Any]:
     target_mobile = mobile or x_active_mobile or ""
+    # 1. Primary: Direct official Swiggy restaurant search (never fails due to rival proxy or session expiry)
+    try:
+        direct_client = SwiggyDirectClient()
+        direct_res = await direct_client.search_restaurants(query=q, lat=lat, lng=lng, mobile=target_mobile)
+        if direct_res.get("success") and len(direct_res.get("restaurants", [])) > 0:
+            return direct_res
+    except Exception as e:
+        logger.warning(f"Direct Swiggy search error: {e}, falling back to ToingClient")
+
+    # 2. Fallback to ToingClient
     client = ToingClient(access_key=x_user_key, tid=authorization, token=x_auth_token, sid=x_session_id)
     return await client.search_restaurants(query=q, lat=lat, lng=lng, mobile=target_mobile)
 

@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/api/v1/:path*",
-      "destination": "https://adapters-corp-killing-senators.trycloudflare.com/api/v1/:path*"
+      "destination": "https://sheets-degrees-florence-infringement.trycloudflare.com/api/v1/:path*"
     },
     {
       "source": "/(.*)",

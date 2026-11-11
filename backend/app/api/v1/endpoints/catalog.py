@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from app.models.user import User
 from app.schemas.catalog import OutletRequest, MenuRequest, MenuSearchRequest
 from app.services.toing_client import ToingClient
+from app.services.swiggy_direct_client import SwiggyDirectClient
 from app.api.deps import get_current_user, get_user_toing_client
 
 router = APIRouter()
@@ -19,6 +20,13 @@ async def search_restaurants(
     Search restaurants near user coordinates.
     """
     mobile = user.active_mobile or ""
+    try:
+        direct_client = SwiggyDirectClient()
+        direct_res = await direct_client.search_restaurants(query=q, lat=lat, lng=lng, mobile=mobile)
+        if direct_res.get("success") and len(direct_res.get("restaurants", [])) > 0:
+            return direct_res
+    except Exception:
+        pass
     return await client.search_restaurants(query=q, lat=lat, lng=lng, mobile=mobile)
 
 @router.post("/outlets")

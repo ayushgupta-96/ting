@@ -78,13 +78,16 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const isSearch = error.config?.url?.includes('/search') || error.config?.url?.includes('/catalog');
-    if (error.response?.status === 403 && !isSearch) {
-      try {
-        if (WebApp?.isVersionAtLeast && WebApp.isVersionAtLeast('6.2') && typeof WebApp.showAlert === 'function') {
-          WebApp.showAlert('Session expired or unauthorized. Please login again.');
-        }
-      } catch (e) {}
+    const isCatalogOrSearch = error.config?.url?.includes('/search') || error.config?.url?.includes('/catalog') || error.config?.url?.includes('/menu');
+    if ((error.response?.status === 401 || error.response?.status === 403) && !isCatalogOrSearch) {
+      const isCriticalAction = error.config?.url?.includes('/checkout') || error.config?.url?.includes('/order');
+      if (isCriticalAction) {
+        try {
+          if (WebApp?.isVersionAtLeast && WebApp.isVersionAtLeast('6.2') && typeof WebApp.showAlert === 'function') {
+            WebApp.showAlert('Session expired or unauthorized. Please login again.');
+          }
+        } catch (e) {}
+      }
     }
     return Promise.reject(error);
   }
