@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Query, Header, HTTPException, Depends, Response
 from typing import Dict, Any, Optional
 import logging
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 from app.core.database import get_db
-from app.models.user import SavedAddressLink, OrderRecord
+from app.models.user import SavedAddressLink, OrderRecord, AccountSession
 from app.api.v1.endpoints import auth, catalog, cart, orders
 from app.services.toing_client import ToingClient
 from app.services.swiggy_direct_client import SwiggyDirectClient
@@ -200,9 +201,69 @@ async def calculate_cart_top_level(
     x_auth_token: Optional[str] = Header(None, alias="x-auth-token"),
     x_session_id: Optional[str] = Header(None, alias="x-session-id"),
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
+    db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    if not payload.get("mobile") and x_active_mobile:
-        payload["mobile"] = x_active_mobile
+    target_mobile = payload.get("mobile") or x_active_mobile or ""
+    if not payload.get("mobile") and target_mobile:
+        payload["mobile"] = target_mobile
+
+    # 1. Primary: Direct Official Swiggy update-cart
+    try:
+        eff_tid = authorization
+        eff_token = x_auth_token
+        eff_sid = x_session_id
+        eff_cust_id = None
+        eff_dev_id = None
+
+        if target_mobile and (not eff_tid or not eff_token):
+            stmt = select(AccountSession).where(AccountSession.mobile == target_mobile).order_by(AccountSession.id.desc())
+            res = await db.execute(stmt)
+            acc = res.scalars().first()
+            if acc:
+                eff_tid = eff_tid or acc.tid
+                eff_token = eff_token or acc.token
+                eff_sid = eff_sid or acc.sid
+                eff_cust_id = acc.customer_id
+                eff_dev_id = acc.device_id
+
+        if eff_tid and not eff_cust_id:
+            try:
+                import json, base64
+                parts = eff_tid.split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                    payload_data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+                    eff_cust_id = str(payload_data.get("user_id") or "")
+            except Exception:
+                pass
+
+        if eff_tid and eff_token:
+            rest = payload.get("restaurant", {})
+            sw_client = SwiggyDirectClient(
+                device_id=eff_dev_id,
+                tid=eff_tid,
+                sid=eff_sid,
+                token=eff_token
+            )
+            calc_res = await sw_client.update_cart(
+                restaurant_id=str(rest.get("id", "")),
+                restaurant_name=rest.get("name", "Restaurant"),
+                parent_restaurant_id=str(rest.get("parent_id") or rest.get("id", "")),
+                cart_items=payload.get("items", []),
+                address_id=str(payload.get("address_id", "")),
+                lat=float(payload.get("lat", 28.4535279)),
+                lng=float(payload.get("lng", 77.4987012)),
+                cart_id=payload.get("cart_id"),
+                cooking_instructions=payload.get("cooking"),
+                customer_id=eff_cust_id
+            )
+            if calc_res.get("success"):
+                return calc_res
+    except Exception as e:
+        print(f"DEBUG update_cart exception: {type(e)} {e}")
+        logger.exception(f"Direct Swiggy update_cart error: {e}, falling back to ToingClient")
+
+    # 2. Fallback to ToingClient
     client = ToingClient(access_key=x_user_key, tid=authorization, token=x_auth_token, sid=x_session_id)
     return await client.calculate_cart(payload)
 
@@ -274,8 +335,57 @@ async def payment_options_top_level(
     x_auth_token: Optional[str] = Header(None, alias="x-auth-token"),
     x_session_id: Optional[str] = Header(None, alias="x-session-id"),
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
+    db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     mobile = payload.get("mobile") or x_active_mobile or ""
+    try:
+        eff_tid = authorization
+        eff_token = x_auth_token
+        eff_sid = x_session_id
+        eff_cust_id = None
+        eff_dev_id = None
+
+        if mobile and (not eff_tid or not eff_token):
+            stmt = select(AccountSession).where(AccountSession.mobile == mobile).order_by(AccountSession.id.desc())
+            res = await db.execute(stmt)
+            acc = res.scalars().first()
+            if acc:
+                eff_tid = eff_tid or acc.tid
+                eff_token = eff_token or acc.token
+                eff_sid = eff_sid or acc.sid
+                eff_cust_id = acc.customer_id
+                eff_dev_id = acc.device_id
+
+        if eff_tid and not eff_cust_id:
+            try:
+                import json, base64
+                parts = eff_tid.split(".")
+                if len(parts) >= 2:
+                    padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                    payload_data = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
+                    eff_cust_id = str(payload_data.get("user_id") or "")
+            except Exception:
+                pass
+
+        if eff_tid and eff_token and payload.get("cart_id"):
+            sw_client = SwiggyDirectClient(
+                device_id=eff_dev_id,
+                tid=eff_tid,
+                sid=eff_sid,
+                token=eff_token
+            )
+            pay_res = await sw_client.get_payment_options(
+                cart_id=str(payload.get("cart_id")),
+                address_id=str(payload.get("address_id", "")),
+                lat=float(payload.get("lat", 28.4535279)),
+                lng=float(payload.get("lng", 77.4987012)),
+                customer_id=eff_cust_id
+            )
+            if pay_res.get("statusCode") == 0 or pay_res.get("data"):
+                return pay_res
+    except Exception as e:
+        logger.warning(f"Direct Swiggy get_payment_options error: {e}")
+
     client = ToingClient(access_key=x_user_key, tid=authorization, token=x_auth_token, sid=x_session_id)
     return await client.get_payment_options(
         mobile=mobile,

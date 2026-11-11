@@ -422,3 +422,324 @@ class SwiggyDirectClient:
                     }
             except Exception as e:
                 raise HTTPException(status_code=502, detail=f"Failed to save address: {str(e)}")
+
+    async def update_cart(
+        self,
+        restaurant_id: str,
+        restaurant_name: str,
+        parent_restaurant_id: str,
+        cart_items: List[Dict[str, Any]],
+        address_id: str,
+        lat: float = 28.4535279,
+        lng: float = 77.4987012,
+        cart_id: Optional[str] = None,
+        cooking_instructions: Optional[str] = None,
+        tid: Optional[str] = None,
+        token: Optional[str] = None,
+        sid: Optional[str] = None,
+        device_id: Optional[str] = None,
+        customer_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Direct official Swiggy Cart Calculation & Update
+        POST https://payments.swiggy.com/api/v3/update-cart
+        """
+        url = "https://payments.swiggy.com/api/v3/update-cart"
+        self.tid = tid or self.tid
+        self.token = token or self.token
+        self.sid = sid or self.sid
+        self.device_id = device_id or self.device_id
+
+        # Format items to Swiggy expected schema
+        formatted_items = []
+        for it in cart_items:
+            price_paise = it.get("cost") or it.get("price") or 0
+            if price_paise < 1000 and price_paise > 0:
+                price_paise = int(price_paise * 100)
+            
+            formatted_items.append({
+                "cartCategoryType": "ITEM_CART_CATEGORY_TYPE_INVALID",
+                "cart_context": "",
+                "cloudinaryImageId": it.get("cloudinaryImageId") or it.get("image_id") or it.get("image") or "",
+                "cost": int(price_paise),
+                "itemNudgeType": "",
+                "item_offer_cart_meta": "",
+                "item_price_strike_off": True,
+                "addons": it.get("addons") or [],
+                "variants": it.get("variants") or [],
+                "maxFreeAddons": -1,
+                "menu_item_id": str(it.get("menu_item_id") or it.get("id")),
+                "quantity": int(it.get("quantity", 1)),
+                "rewardType": "",
+                "name": it.get("name", "Item"),
+                "offer_ids": []
+            })
+
+        body = {
+            "address_nudge_check": False,
+            "batch_opt_in": False,
+            "cart_journey_ctx": {
+                "cart_category_type": "",
+                "cart_initialization_source": "SEARCH",
+                "request_contexts": ["99store", "enable_ecosaver"]
+            },
+            "cartLatLong": {"lat": lat, "lng": lng},
+            "date": 0,
+            "delivery_type_opt_in": False,
+            "first_time_user": True,
+            "is_incognito_cart": False,
+            "sld": 0,
+            "address_id": address_id,
+            "cartItems": formatted_items,
+            "cart_type": "REGULAR",
+            "parent_restaurant_id": str(parent_restaurant_id or restaurant_id),
+            "restaurantId": str(restaurant_id),
+            "restaurantName": restaurant_name or "Restaurant",
+            "orderComment": cooking_instructions or "",
+            "p_segment_id": "P3_P",
+            "removed_plan_ids": [],
+            "shared": False,
+            "subscriptionItems": [],
+            "user_flow_info": {},
+            "cart_saved_preferences": {},
+            "cart_update_coupon_request": [],
+            "created_from_group_cart": False,
+            "is_menu_to_cart_transition": True
+        }
+
+        headers = {
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "accessibility-enabled": "false",
+            "addressid": address_id,
+            "analyticsplatform": "an",
+            "app-version": "4.121.0",
+            "application_name": "toing-app",
+            "cartentry": "Cart_Crouton_Menu",
+            "cartpageprefetch": "false",
+            "cartsource": "Menu",
+            "category": "food",
+            "cityid": "10459",
+            "client-id": "Swiggy-Android",
+            "Content-Type": "application/json",
+            "deviceid": self.device_id,
+            "fullscreenbottomoffset": "24",
+            "fullscreenstatusbarheight": "50",
+            "Host": "payments.swiggy.com",
+            "isfrombottombar": "false",
+            "isr1fa": "false",
+            "lat": str(lat),
+            "latitude": str(lat),
+            "lng": str(lng),
+            "longitude": str(lng),
+            "m_id": "CHECKOUT",
+            "marketplacebusinessline": "Regular",
+            "marketplacecategory": "FOOD",
+            "marketplaceid": "1",
+            "Origin": "https://payments.swiggy.com",
+            "os-version": "17",
+            "platform": "Swiggy-Android",
+            "Referer": "https://payments.swiggy.com/?flow=cart&custom_back=true",
+            "referrer": "menu",
+            "sec-ch-ua": '"Not:A-Brand";v="99", "Android WebView";v="145", "Chromium";v="145"',
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": '"Android"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "sid": self.sid or "",
+            "swuid": self.device_id,
+            "tid": self.tid or "",
+            "token": self.token or "",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone64_x86_64 Build/CE2A.260420.019; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/145.0.7632.218 Mobile Safari/537.36",
+            "userid": str(customer_id or ""),
+            "version-code": "1875",
+            "x-channel": "toing-app",
+            "x-checkout-webview": "android",
+            "x-client-id": "web-payment",
+            "x-origin-id": "android",
+            "X-Requested-With": "in.swiggy.android.toing",
+            "x-theme": "toing",
+            "x-web-checkout-flow": "cart"
+        }
+
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code == 200:
+                res = resp.json()
+                data = res.get("data", {})
+                new_cart_id = str(data.get("cartId") or data.get("originalCartId") or "")
+                
+                item_total = data.get("item_total") or data.get("itemTotalBillPresentation") or (data.get("cart_subtotal_without_packing", 0))
+                order_total = data.get("order_total") or data.get("cart_total") or 0
+                delivery_fee = data.get("delivery_charges") or data.get("positiveDeliveryChargesExclusive") or 0
+                taxes = data.get("taxesAndCharges") or data.get("total_tax") or 0
+                discount = data.get("discount_total") or data.get("trade_discount_total") or 0
+
+                return {
+                    "success": True,
+                    "cart_id": new_cart_id,
+                    "originalCartId": new_cart_id,
+                    "cart_value": item_total,
+                    "bill": {
+                        "item_total": float(item_total),
+                        "order_total": float(order_total),
+                        "to_pay": float(order_total),
+                        "delivery_charges": float(delivery_fee),
+                        "taxes_and_charges": float(taxes),
+                        "discount": float(discount),
+                        "coupon_discount": float(data.get("coupon_discount_total", 0)),
+                        "trade_discount": float(discount),
+                        "total": float(order_total)
+                    },
+                    "data": data
+                }
+            else:
+                raise HTTPException(status_code=resp.status_code, detail=f"Swiggy Cart Error: {resp.text[:200]}")
+
+    async def get_payment_options(
+        self,
+        cart_id: str,
+        address_id: str,
+        lat: float = 28.4535279,
+        lng: float = 77.4987012,
+        tid: Optional[str] = None,
+        token: Optional[str] = None,
+        sid: Optional[str] = None,
+        device_id: Optional[str] = None,
+        customer_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch all payment methods (UPI Intent apps, Card, Netbanking, Wallets)
+        POST https://payments.swiggy.com/api/v3/payment/get-payment-options
+        """
+        url = "https://payments.swiggy.com/api/v3/payment/get-payment-options"
+        self.tid = tid or self.tid
+        self.token = token or self.token
+        self.sid = sid or self.sid
+        self.device_id = device_id or self.device_id
+
+        headers = {
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "accessibility-enabled": "false",
+            "addressid": address_id,
+            "cartaddressid": address_id,
+            "cartid": str(cart_id),
+            "analyticsplatform": "an",
+            "app-version": "4.121.0",
+            "application_name": "toing-app",
+            "cartentry": "Cart_Crouton_Menu",
+            "cartpageprefetch": "false",
+            "cartsource": "Menu",
+            "category": "food",
+            "cityid": "10459",
+            "client-id": "Swiggy-Android",
+            "Content-Type": "application/json",
+            "deviceid": self.device_id,
+            "fullscreenbottomoffset": "24",
+            "fullscreenstatusbarheight": "50",
+            "Host": "payments.swiggy.com",
+            "isfrombottombar": "false",
+            "isr1fa": "false",
+            "lat": str(lat),
+            "latitude": str(lat),
+            "lng": str(lng),
+            "longitude": str(lng),
+            "m_id": "CHECKOUT",
+            "marketplacebusinessline": "Regular",
+            "marketplacecategory": "FOOD",
+            "marketplaceid": "1",
+            "Origin": "https://payments.swiggy.com",
+            "os-version": "17",
+            "platform": "Swiggy-Android",
+            "Referer": "https://payments.swiggy.com/?flow=cart&custom_back=true",
+            "referrer": "menu",
+            "sid": self.sid or "",
+            "swuid": self.device_id,
+            "tid": self.tid or "",
+            "token": self.token or "",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone64_x86_64 Build/CE2A.260420.019; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/145.0.7632.218 Mobile Safari/537.36",
+            "userid": str(customer_id or ""),
+            "version-code": "1875",
+            "x-channel": "toing-app",
+            "x-checkout-webview": "android",
+            "x-client-id": "web-payment",
+            "x-origin-id": "android",
+            "X-Requested-With": "in.swiggy.android.toing",
+            "x-theme": "toing",
+            "x-web-checkout-flow": "cart"
+        }
+
+        body = {
+            "address_id": "",
+            "card_details": True,
+            "is_user_cred_eligible": False,
+            "is_user_eligible_for_single_click": True,
+            "without_split_pay": False,
+            "split_pay_methods": "default",
+            "is_gifting_flow": False,
+            "is_inapp_upi_eligible": False,
+            "apple_pay_eligibility": "",
+            "bill_to_company_toggle": False,
+            "turbo_variant": "turboV2"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                raise HTTPException(status_code=resp.status_code, detail=f"Payment options error: {resp.text[:200]}")
+
+    async def get_juspay_client_auth_token(
+        self,
+        cart_id: str,
+        address_id: str,
+        tid: Optional[str] = None,
+        token: Optional[str] = None,
+        sid: Optional[str] = None,
+        device_id: Optional[str] = None,
+        customer_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetch Juspay SDK auth token
+        GET https://payments.swiggy.com/api/v3/juspay/get-client-auth-token
+        """
+        url = "https://payments.swiggy.com/api/v3/juspay/get-client-auth-token"
+        self.tid = tid or self.tid
+        self.token = token or self.token
+        self.sid = sid or self.sid
+        self.device_id = device_id or self.device_id
+
+        headers = {
+            "Accept": "*/*",
+            "accessibility-enabled": "false",
+            "addressid": address_id,
+            "cartaddressid": address_id,
+            "cartid": str(cart_id),
+            "application_name": "toing-app",
+            "client-id": "Swiggy-Android",
+            "deviceid": self.device_id,
+            "Host": "payments.swiggy.com",
+            "sid": self.sid or "",
+            "swuid": self.device_id,
+            "tenant": "TOING",
+            "tid": self.tid or "",
+            "token": self.token or "",
+            "userid": str(customer_id or ""),
+            "version-code": "1875",
+            "x-channel": "toing-app",
+            "x-client-id": "web-payment",
+            "x-origin-id": "android",
+            "X-Requested-With": "in.swiggy.android.toing",
+            "x-theme": "toing",
+            "x-web-checkout-flow": "cart"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+            else:
+                raise HTTPException(status_code=resp.status_code, detail=f"Juspay token error: {resp.text[:200]}")
