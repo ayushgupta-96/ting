@@ -28,6 +28,8 @@ class SearchCartRequest(BaseModel):
     lat: float = Field(28.458901, ge=-90.0, le=90.0)
     lng: float = Field(77.497186, ge=-180.0, le=180.0)
     cooking: Optional[str] = Field("", max_length=500)
+    coupon_code: Optional[str] = ""
+    coupon: Optional[str] = ""
     incognito: bool = True
 
 class SyncCartStateRequest(BaseModel):

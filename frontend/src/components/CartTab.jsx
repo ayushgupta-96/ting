@@ -54,7 +54,16 @@ export default function CartTab({
   const [toPayAmount, setToPayAmount] = useState(0);
 
   // Dynamic Coupon State (Strictly from Toing API, zero hardcoded placeholders)
-  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const tgUserId = getTelegramUserId();
+  const couponStorageKey = `toing_coupon_${tgUserId}`;
+  const [appliedCoupon, setAppliedCoupon] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`toing_coupon_${getTelegramUserId()}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [couponToast, setCouponToast] = useState(null);
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [customCouponInput, setCustomCouponInput] = useState('');
@@ -62,7 +71,6 @@ export default function CartTab({
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
 
   // Checkout & Payment State (Persistent across reloads & external UPI app switches)
-  const tgUserId = getTelegramUserId();
   const checkoutStorageKey = `toing_checkout_${tgUserId}`;
 
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
@@ -165,9 +173,9 @@ export default function CartTab({
           menu_item_id: String(l.id),
           name: l.name,
           image_id: l.image_id || '',
-          price: Math.round((l.price || 0) * 100),
-          cost: Math.round((l.price || 0) * 100),
-          base_price: Math.round((l.base_price || l.price || 0) * 100),
+          price: Number(l.price || 0),
+          cost: Number(l.cost || l.price || 0),
+          base_price: Number(l.base_price || l.price || 0),
           quantity: l.quantity,
           addons: l.addons || [],
           variants: l.variants || [],
@@ -199,7 +207,7 @@ export default function CartTab({
       setItemTotalAmount(rawItemTotal);
 
       // Synchronize final payable amount
-      const finalToPay = calcRes?.bill?.to_pay ?? subtotal;
+      const finalToPay = Math.round(Number(calcRes?.bill?.to_pay ?? subtotal));
       setToPayAmount(finalToPay);
 
       // Synchronize bill lines directly from live response
@@ -220,19 +228,25 @@ export default function CartTab({
         if (b.taxes_and_charges && b.taxes_and_charges > 0) {
           lines.push({ key: 'gst', label: 'Government Taxes & Charges', value: `${b.taxes_and_charges}`, negative: false, total: false });
         }
-        lines.push({ key: 'grand_total', label: 'To Pay', value: `${b.to_pay}`, negative: false, total: true });
+        lines.push({ key: 'grand_total', label: 'To Pay', value: `${finalToPay}`, negative: false, total: true });
         setBillLines(lines);
       }
 
       // Update coupon state
       if (calcRes?.coupon && calcRes.coupon.code) {
         setAppliedCoupon(calcRes.coupon);
+        try {
+          localStorage.setItem(couponStorageKey, JSON.stringify(calcRes.coupon));
+        } catch (e) {}
         setCouponToast(`${calcRes.coupon.code} applied · ₹${calcRes.coupon.discount || 0} off`);
         if (forcedCouponCode && onShowToast) {
           onShowToast('success', `Coupon ${calcRes.coupon.code} applied!`);
         }
       } else if (forcedCouponCode === '') {
         setAppliedCoupon(null);
+        try {
+          localStorage.removeItem(couponStorageKey);
+        } catch (e) {}
         setCouponToast(null);
       }
 
