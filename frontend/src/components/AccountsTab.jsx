@@ -50,12 +50,25 @@ export default function AccountsTab({
     (a) => (a.status || 'fresh').toLowerCase() === 'used'
   ).length;
 
+  const cleanJsonString = (str) => {
+    if (!str) return '';
+    return str
+      // Replace non-breaking spaces (\u00A0), zero-width spaces, and unicode whitespace with standard space
+      .replace(/[\u00A0\u1680\u180E\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ')
+      // Replace smart/curly quotes with standard double quotes
+      .replace(/[“”«»]/g, '"')
+      .replace(/[‘’]/g, "'")
+      // Remove trailing commas before closing braces/brackets (e.g. { "a": 1, })
+      .replace(/,\s*([}\]])/g, '$1')
+      .trim();
+  };
+
   const handlePasteClipboard = async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
-        setJsonInput(text);
-        if (onSuccessToast) onSuccessToast('Pasted JSON from clipboard');
+        setJsonInput(cleanJsonString(text));
+        if (onSuccessToast) onSuccessToast('Pasted and formatted JSON from clipboard');
       }
     } catch (e) {
       if (onErrorToast) onErrorToast('Unable to read clipboard. Please paste manually.');
@@ -64,7 +77,7 @@ export default function AccountsTab({
 
   const handleJsonSubmit = async (e) => {
     e.preventDefault();
-    const raw = jsonInput.trim();
+    const raw = cleanJsonString(jsonInput);
     if (!raw) {
       if (onErrorToast) onErrorToast('Please paste a JSON credential object');
       return;
