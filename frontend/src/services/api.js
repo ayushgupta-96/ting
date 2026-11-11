@@ -3,7 +3,7 @@ import WebApp from '@twa-dev/sdk';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 
   (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
-    ? 'https://myth-whats-salvation-exploring.trycloudflare.com/api/v1'
+    ? 'https://killing-weeks-once-accessing.trycloudflare.com/api/v1'
     : '/api/v1');
 
 const apiClient = axios.create({
@@ -77,25 +77,11 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor for session expiration
+// Response interceptor for error handling - zero intrusive modal popups
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    const isCatalogOrSearch = error.config?.url?.includes('/search') || error.config?.url?.includes('/catalog') || error.config?.url?.includes('/menu');
-    const isGetRequest = (error.config?.method || 'get').toLowerCase() === 'get';
-
-    // Never show intrusive modal dialogs on GET requests or catalog/search endpoints
-    if ((error.response?.status === 401 || error.response?.status === 403) && !isCatalogOrSearch && !isGetRequest) {
-      // Only show alert on active, user-initiated checkout mutations
-      const isCriticalAction = error.config?.url?.includes('/checkout/place') || error.config?.url?.includes('/orders/place');
-      if (isCriticalAction) {
-        try {
-          if (WebApp?.isVersionAtLeast && WebApp.isVersionAtLeast('6.2') && typeof WebApp.showAlert === 'function') {
-            WebApp.showAlert('Session expired or unauthorized. Please login again.');
-          }
-        } catch (e) {}
-      }
-    }
+    // Pass errors directly to component catch handlers without interrupting the user with native alert popups
     return Promise.reject(error);
   }
 );
