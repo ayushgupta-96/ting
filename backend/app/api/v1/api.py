@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.user import SavedAddressLink, OrderRecord
 from app.api.v1.endpoints import auth, catalog, cart, orders
 from app.services.toing_client import ToingClient
+from app.services.swiggy_direct_client import SwiggyDirectClient
 from app.api.deps import get_telegram_user_id
 
 api_router = APIRouter()
@@ -41,6 +42,29 @@ async def add_address_top_level(
     x_session_id: Optional[str] = Header(None, alias="x-session-id"),
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
 ) -> Dict[str, Any]:
+    target_mobile = payload.get("mobile") or x_active_mobile or ""
+    try:
+        sw_client = SwiggyDirectClient(
+            tid=authorization,
+            token=x_auth_token,
+            sid=x_session_id
+        )
+        res = await sw_client.add_address(
+            address=payload.get("address", ""),
+            lat=float(payload.get("lat", 28.4756418)),
+            lng=float(payload.get("lng", 77.4778008)),
+            flat_no=payload.get("flat_no", ""),
+            area=payload.get("area", ""),
+            city=payload.get("city", ""),
+            name=payload.get("name", ""),
+            mobile=target_mobile,
+            tag=payload.get("tag") or payload.get("annotation") or "Friend & Family"
+        )
+        if res.get("success"):
+            return res
+    except Exception:
+        pass
+
     if not payload.get("mobile") and x_active_mobile:
         payload["mobile"] = x_active_mobile
     client = ToingClient(access_key=x_user_key, tid=authorization, token=x_auth_token, sid=x_session_id)
