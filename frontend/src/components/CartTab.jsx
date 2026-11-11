@@ -53,17 +53,39 @@ export default function CartTab({
   const [itemTotalAmount, setItemTotalAmount] = useState(0);
   const [toPayAmount, setToPayAmount] = useState(0);
 
-  // Dynamic Coupon State (Strictly from Toing API, zero hardcoded placeholders)
   const tgUserId = getTelegramUserId();
-  const couponStorageKey = `toing_coupon_${tgUserId}`;
+  const mobile = activeAccount?.mobile || '';
+  const lat = activeAddress?.lat;
+  const lng = activeAddress?.lng;
+
+  // Dynamic Coupon State scoped per mobile account (Strictly from Toing API, zero hardcoded placeholders)
+  const couponStorageKey = mobile ? `toing_coupon_${tgUserId}_${mobile}` : `toing_coupon_${tgUserId}`;
   const [appliedCoupon, setAppliedCoupon] = useState(() => {
     try {
-      const saved = localStorage.getItem(`toing_coupon_${getTelegramUserId()}`);
+      const key = activeAccount?.mobile ? `toing_coupon_${getTelegramUserId()}_${activeAccount.mobile}` : `toing_coupon_${getTelegramUserId()}`;
+      const saved = localStorage.getItem(key);
       return saved ? JSON.parse(saved) : null;
     } catch (e) {
       return null;
     }
   });
+
+  // Strict account isolation: Reset & synchronize coupon state when switching account
+  useEffect(() => {
+    if (!mobile) {
+      setAppliedCoupon(null);
+      setAvailableCoupons([]);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(`toing_coupon_${tgUserId}_${mobile}`);
+      setAppliedCoupon(saved ? JSON.parse(saved) : null);
+    } catch (e) {
+      setAppliedCoupon(null);
+    }
+    setAvailableCoupons([]);
+  }, [mobile, tgUserId]);
+
   const [couponToast, setCouponToast] = useState(null);
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [customCouponInput, setCustomCouponInput] = useState('');
@@ -98,10 +120,6 @@ export default function CartTab({
   const [lastCheckMessage, setLastCheckMessage] = useState(null);
   const [orderConfirmed, setOrderConfirmed] = useState(null);
   const [showQrCode, setShowQrCode] = useState(false);
-
-  const mobile = activeAccount?.mobile || '';
-  const lat = activeAddress?.lat;
-  const lng = activeAddress?.lng;
 
   const restaurant = cartLines[0]?.restaurant || selectedRestaurant || null;
 
@@ -232,8 +250,8 @@ export default function CartTab({
         setBillLines(lines);
       }
 
-      // Update coupon state
-      if (calcRes?.coupon && calcRes.coupon.code) {
+      // Update coupon state strictly based on authentic Toing response
+      if (calcRes?.coupon && calcRes.coupon.valid && calcRes.coupon.code && (calcRes.coupon.discount > 0 || calcRes.coupon.valid)) {
         setAppliedCoupon(calcRes.coupon);
         try {
           localStorage.setItem(couponStorageKey, JSON.stringify(calcRes.coupon));
@@ -242,12 +260,16 @@ export default function CartTab({
         if (forcedCouponCode && onShowToast) {
           onShowToast('success', `Coupon ${calcRes.coupon.code} applied!`);
         }
-      } else if (forcedCouponCode === '') {
+      } else {
         setAppliedCoupon(null);
         try {
           localStorage.removeItem(couponStorageKey);
         } catch (e) {}
         setCouponToast(null);
+        if (forcedCouponCode && onShowToast) {
+          const errMsg = calcRes?.coupon?.error || 'Coupon is not applicable to this account or order';
+          onShowToast('error', errMsg);
+        }
       }
 
       // Fetch authentic coupons list for this restaurant and cart value
@@ -262,9 +284,12 @@ export default function CartTab({
         });
         if (Array.isArray(cpnRes?.coupons)) {
           setAvailableCoupons(cpnRes.coupons);
+        } else {
+          setAvailableCoupons([]);
         }
       } catch (e) {
         console.warn('Coupons fetch error:', e);
+        setAvailableCoupons([]);
       }
     } catch (err) {
       console.error('Pricing calculation error:', err);
@@ -284,12 +309,12 @@ export default function CartTab({
     }
   };
 
-  // Run calculation when cart items change, delivery address changes, or when entering Cart Tab
+  // Run calculation when cart items change, delivery address changes, active account changes, or when entering Cart Tab
   useEffect(() => {
     if (cartLines.length > 0 && activeAddress) {
       calculateAndApplyPricing();
     }
-  }, [isActive, cartLines.length, activeAddress?.id, activeAddress?.lat, activeAddress?.lng]);
+  }, [isActive, cartLines.length, activeAddress?.id, activeAddress?.lat, activeAddress?.lng, mobile]);
 
   // 2. Place Order & Open UPI Payment View (Strictly real Toing upstream)
   const handlePayNow = async () => {
@@ -1038,12 +1063,23 @@ export default function CartTab({
             </div>
           </div>
 
-          <button
-            onClick={() => setIsCouponModalOpen(true)}
-            className="text-[#7C3AED] dark:text-purple-300 font-black text-xs hover:underline cursor-pointer px-2 py-1 flex-shrink-0"
-          >
-            Change
-          </button>
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            <button
+              onClick={() => {
+                calculateAndApplyPricing('');
+                if (onShowToast) onShowToast('info', 'Coupon removed');
+              }}
+              className="text-red-500 hover:text-red-700 font-extrabold text-xs cursor-pointer px-1.5 py-1"
+            >
+              Remove
+            </button>
+            <button
+              onClick={() => setIsCouponModalOpen(true)}
+              className="text-[#7C3AED] dark:text-purple-300 font-black text-xs hover:underline cursor-pointer px-1.5 py-1"
+            >
+              Change
+            </button>
+          </div>
         </div>
       ) : (
         <div className="bg-white dark:bg-[#1E293B] border border-gray-100 dark:border-gray-800 rounded-2xl p-3.5 flex items-center justify-between shadow-card">
@@ -1244,6 +1280,29 @@ export default function CartTab({
               </button>
             </div>
 
+            {/* Currently Applied Coupon in Modal */}
+            {appliedCoupon?.valid && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-3 mt-3 flex items-center justify-between shadow-sm">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-xs font-black text-emerald-900 dark:text-emerald-100">
+                    '{appliedCoupon.code}' is applied (-₹{appliedCoupon.discount})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    calculateAndApplyPricing('');
+                    setIsCouponModalOpen(false);
+                    if (onShowToast) onShowToast('info', 'Coupon removed');
+                  }}
+                  className="bg-white dark:bg-gray-800 text-red-500 hover:text-red-600 text-xs font-black px-2.5 py-1 rounded-xl border border-red-200 dark:border-red-900/50 active:scale-95 transition-all"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+
             {/* Custom Code Input */}
             <div className="flex space-x-2 my-4">
               <input
@@ -1269,9 +1328,10 @@ export default function CartTab({
               </p>
 
               {availableCoupons.length === 0 ? (
-                <div className="text-center py-6 text-gray-400 text-xs">
+                <div className="text-center py-6 text-gray-400 text-xs space-y-1">
                   <Ticket className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                  <p>No coupons currently returned for this cart.</p>
+                  <p className="font-bold text-gray-700 dark:text-gray-300">No coupons available for this account</p>
+                  <p className="text-[11px] text-gray-400">Offers vary by mobile account and minimum order value.</p>
                 </div>
               ) : (
                 availableCoupons.map((cpn) => {

@@ -1094,6 +1094,11 @@ class SwiggyDirectClient:
                 new_cart_id = str(data.get("cartId") or data.get("originalCartId") or "")
                 
                 # Check if data contains live calculated bill
+                applied_coupon_code = ""
+                coupon_discount = 0.0
+                is_valid_coupon = False
+                coupon_err = None
+
                 if data and (data.get("order_total") is not None or data.get("cart_total") is not None):
                     item_total = float(data.get("item_total") or data.get("itemTotalBillPresentation") or data.get("cart_subtotal_without_packing") or 0.0)
                     order_total = float(data.get("order_total") or data.get("cart_total") or 0.0)
@@ -1101,8 +1106,8 @@ class SwiggyDirectClient:
                     taxes = float(data.get("taxesAndCharges") or data.get("total_tax") or 0.0)
                     discount = float(data.get("discount_total") or data.get("trade_discount_total") or 0.0)
                     trade_discount = float(data.get("trade_discount_total") or 0.0)
-                    coupon_discount = float(data.get("coupon_discount_total") or 0.0)
-                    applied_coupon_code = str(data.get("coupon_code") or "")
+                    raw_coupon_discount = float(data.get("coupon_discount_total") or 0.0)
+                    raw_coupon_code = str(data.get("coupon_code") or "")
 
                     # Swiggy API amounts are in paise (e.g. 10400 paise = ₹104.00, 520 paise = ₹5.20)
                     if item_total >= 1000 or order_total >= 1000:
@@ -1112,7 +1117,19 @@ class SwiggyDirectClient:
                         taxes /= 100.0
                         discount /= 100.0
                         trade_discount /= 100.0
-                        coupon_discount /= 100.0
+                        raw_coupon_discount /= 100.0
+
+                    # Strictly synchronize coupon validity from Swiggy
+                    if data.get("is_coupon_valid") == 1 and raw_coupon_code:
+                        is_valid_coupon = True
+                        applied_coupon_code = raw_coupon_code
+                        coupon_discount = raw_coupon_discount
+                    else:
+                        is_valid_coupon = False
+                        applied_coupon_code = ""
+                        coupon_discount = 0.0
+                        if coupon_code:
+                            coupon_err = data.get("coupon_error_message") or data.get("coupon_invalid_reason") or "Coupon is not applicable"
 
                     free_cash_val = trade_discount if trade_discount > 0 else (50.0 if item_total >= 99 else 0.0)
                     reward_label = data.get("offerCashRewardDisplayText") or ("₹20 extra off above coupons" if free_cash_val > 0 else "")
@@ -1120,16 +1137,9 @@ class SwiggyDirectClient:
                     if reward_savings_info and reward_savings_info.get("title"):
                         reward_label = reward_savings_info.get("title")
 
-                    if coupon_code and not coupon_discount:
-                        applied_coupon_code = coupon_code.upper().strip()
-                        if applied_coupon_code in ("BHIMNEW", "BHIMUPI") and item_total >= 99:
-                            coupon_discount = 49.99
-                        elif applied_coupon_code == "PAYTMNEW" and item_total >= 99:
-                            coupon_discount = 50.0
-
                     order_total = max(0.0, round(item_total + delivery_fee + taxes - free_cash_val - coupon_discount, 2))
                 else:
-                    # Compute authentic bill using live cart items, Free Cash rules & coupon
+                    # Compute authentic bill using live cart items, Free Cash rules & verified coupons
                     raw_subtotal = 0.0
                     for it in cart_items:
                         p = float(it.get("price") or it.get("cost") or it.get("base_price") or 0.0)
@@ -1146,21 +1156,56 @@ class SwiggyDirectClient:
                     free_cash_val = 50.0 if item_total >= 99 else 0.0
                     reward_label = "₹20 extra off above coupons" if free_cash_val > 0 else ""
                     trade_discount = free_cash_val
-                    
-                    # Authentic Toing coupon deduction
-                    coupon_discount = 0.0
-                    applied_coupon_code = (coupon_code or "").upper().strip()
-                    if applied_coupon_code in ("BHIMNEW", "BHIMUPI") and item_total >= 99:
-                        coupon_discount = 49.99
-                    elif applied_coupon_code == "PAYTMNEW" and item_total >= 99:
-                        coupon_discount = 50.0
-                    elif applied_coupon_code == "AXIS120" and item_total >= 500:
-                        coupon_discount = 120.0
-                    elif applied_coupon_code == "AXIS150" and item_total >= 400:
-                        coupon_discount = 150.0
-                    elif applied_coupon_code == "AXIS200" and item_total >= 1000:
-                        coupon_discount = 200.0
-                    
+
+                    # Strictly validate requested coupon against real available coupons for this account
+                    req_code = (coupon_code or "").upper().strip()
+                    if req_code:
+                        try:
+                            cpn_check = await self.fetch_coupons(
+                                restaurant_id=str(restaurant_id),
+                                cart_value=item_total,
+                                lat=lat,
+                                lng=lng,
+                                address_id=address_id,
+                                customer_id=customer_id
+                            )
+                            avail = cpn_check.get("coupons", [])
+                            matching = next((c for c in avail if c.get("code", "").upper() == req_code), None)
+                            if matching and matching.get("applicable"):
+                                is_valid_coupon = True
+                                applied_coupon_code = matching["code"]
+                                disc_val = float(matching.get("discount") or 0.0)
+                                if disc_val > 0:
+                                    coupon_discount = disc_val
+                                else:
+                                    # Parse discount from description / subtitle if not explicitly numeric
+                                    import re
+                                    m_disc = re.search(r'(?:flat|upto|save)?\s*₹?\s*(\d+(?:\.\d+)?)\s*(?:off|cashback|discount)', matching.get("description", "") + " " + matching.get("subtitle", ""), re.IGNORECASE)
+                                    if m_disc:
+                                        coupon_discount = min(float(m_disc.group(1)), round(item_total * 0.5, 2))
+                                    else:
+                                        coupon_discount = 0.0
+                            elif matching:
+                                is_valid_coupon = False
+                                applied_coupon_code = ""
+                                coupon_discount = 0.0
+                                coupon_err = matching.get("subtitle") or "Coupon conditions not met"
+                            else:
+                                is_valid_coupon = False
+                                applied_coupon_code = ""
+                                coupon_discount = 0.0
+                                coupon_err = f"Coupon '{req_code}' does not exist or is not available for this account"
+                        except Exception as e:
+                            logger.warning(f"Error verifying coupon {req_code}: {e}")
+                            is_valid_coupon = False
+                            applied_coupon_code = ""
+                            coupon_discount = 0.0
+                            coupon_err = f"Could not verify coupon '{req_code}'"
+                    else:
+                        is_valid_coupon = False
+                        applied_coupon_code = ""
+                        coupon_discount = 0.0
+
                     discount = free_cash_val + coupon_discount
                     order_total = max(0.0, round(item_total + delivery_fee + taxes - free_cash_val - coupon_discount, 2))
 
@@ -1180,7 +1225,7 @@ class SwiggyDirectClient:
                         "negative": True,
                         "total": False
                     })
-                if coupon_discount > 0:
+                if is_valid_coupon and coupon_discount > 0:
                     cpn_str = f"{coupon_discount:.2f}" if (coupon_discount % 1 != 0) else f"{int(coupon_discount)}"
                     bill_lines.append({
                         "key": "coupon_discount",
@@ -1225,8 +1270,8 @@ class SwiggyDirectClient:
                         "discount": discount,
                         "free_cash": free_cash_val,
                         "free_cash_label": reward_label,
-                        "coupon_discount": coupon_discount,
-                        "coupon_code": applied_coupon_code or coupon_code,
+                        "coupon_discount": coupon_discount if is_valid_coupon else 0.0,
+                        "coupon_code": applied_coupon_code if is_valid_coupon else "",
                         "trade_discount": trade_discount,
                         "total": order_total,
                         "is_serviceable": is_serviceable,
@@ -1239,9 +1284,10 @@ class SwiggyDirectClient:
                         "label": reward_label
                     },
                     "coupon": {
-                        "code": applied_coupon_code or (coupon_code if coupon_discount > 0 else ""),
-                        "discount": coupon_discount,
-                        "valid": bool(data.get("is_coupon_valid", 0) or coupon_discount > 0)
+                        "code": applied_coupon_code if is_valid_coupon else "",
+                        "discount": coupon_discount if is_valid_coupon else 0.0,
+                        "valid": is_valid_coupon,
+                        "error": coupon_err if not is_valid_coupon and coupon_code else None
                     },
                     "data": data
                 }

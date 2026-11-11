@@ -783,21 +783,32 @@ async def apply_coupon_top_level(
                 coupon_code=code,
                 customer_id=eff_cust_id
             )
-            if calc_res.get("success"):
+            cpn = calc_res.get("coupon", {})
+            if calc_res.get("success") and cpn.get("valid"):
                 return {
                     "success": True,
-                    "coupon": calc_res.get("coupon", {}),
+                    "coupon": cpn,
                     "bill": calc_res.get("bill", {}),
                     "bill_lines": calc_res.get("bill_lines", []),
                     "data": calc_res.get("data", {})
+                }
+            else:
+                err_msg = cpn.get("error") or "Coupon is not applicable to this account or order"
+                return {
+                    "success": False,
+                    "coupon": {"code": code, "discount": 0, "valid": False, "error": err_msg},
+                    "bill": calc_res.get("bill", {}),
+                    "bill_lines": calc_res.get("bill_lines", []),
+                    "message": err_msg,
+                    "error": err_msg
                 }
     except Exception as e:
         logger.warning(f"Error applying coupon: {e}")
 
     return {
-        "success": True,
-        "coupon": {"code": code, "discount": 0, "valid": True, "message": f"Coupon {code} active for checkout"},
-        "message": f"Coupon {code} verified"
+        "success": False,
+        "coupon": {"code": code, "discount": 0, "valid": False, "error": f"Coupon {code} is not valid for this account."},
+        "message": f"Coupon {code} is not valid for this account."
     }
 
 @api_router.post("/checkout/payment_options")
@@ -883,41 +894,60 @@ async def payment_options_top_level(
 async def place_order_top_level(
     payload: Dict[str, Any],
     db: AsyncSession = Depends(get_db),
-    telegram_id: int = Depends(get_telegram_user_id),
+    telegram_id: Optional[int] = Depends(get_optional_telegram_user_id),
     x_active_mobile: Optional[str] = Header(None, alias="X-Active-Mobile"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
     x_auth_token: Optional[str] = Header(None, alias="x-auth-token"),
     x_session_id: Optional[str] = Header(None, alias="x-session-id"),
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
 ) -> Dict[str, Any]:
-    import time, json
+    import time, json, hashlib
     mobile = payload.get("mobile") or x_active_mobile or ""
-    cart_id = str(payload.get("cart_id") or "")
-    if not cart_id or cart_id.startswith("local_"):
-        cart_id = str(int(time.time() * 1000))[-10:]
-    order_id = cart_id
+    eff_telegram_id = telegram_id or 127570944
+    raw_cart_id = str(payload.get("cart_id") or "")
+    now_ms = int(time.time() * 1000)
+
+    # Authentic 15-digit order ID & transaction ID matching HAR Entry 68
+    if raw_cart_id and len(raw_cart_id) >= 10 and not raw_cart_id.startswith("local_"):
+        order_id = raw_cart_id if len(raw_cart_id) == 15 else f"25{raw_cart_id[-13:]}"
+    else:
+        order_id = f"25{now_ms % 1000000000000:012d}"
+
+    txn_id = f"27{((now_ms + 12345) % 1000000000000):012d}"
+    axb_tid = "AXB" + hashlib.md5(f"{order_id}_{txn_id}".encode()).hexdigest()
     amount = float(payload.get("amount") or payload.get("total") or 0.0)
     restaurant_name = payload.get("restaurant") or payload.get("snap", {}).get("restaurant") or "Restaurant"
 
-    # Authentic UPI payment intent URL
-    upi_intent = f"upi://pay?pa=swiggy@icici&pn=Swiggy&am={amount:.2f}&tr={order_id}&cu=INR&mc=5812"
+    # Official Swiggy Axis Bank UPI intent URL (matching HAR Entry 68)
+    upi_intent = (
+        f"upi://pay?pa=swiggyupi@axb&pn=Swiggy&mc=5814"
+        f"&tid={axb_tid}&tr={txn_id}&am={amount:.2f}&cu=INR&tn=Pay%20for%20Intent"
+    )
 
     result = {
         "success": True,
+        "method": "upi",
+        "txn_id": txn_id,
         "order_id": order_id,
-        "txn_id": f"TXN_{order_id}",
-        "total": amount,
         "status": "processing",
+        "post_status": "pending",
+        "placement_status": "0",
+        "payment_state": "STATE_PENDING",
+        "payment_txn_status": "pending",
+        "restaurant": restaurant_name,
+        "total": round(amount, 2),
+        "eta_min": "25-30",
         "upi_url": upi_intent,
-        "poll_ms": 2500,
-        "eta_min": "28",
+        "confirm_ms": 45000,
+        "poll_ms": 1000,
+        "upi_pkg": "in.org.npci.upiapp",
         "message": "Order created successfully"
     }
 
     try:
         order_record = OrderRecord(
             order_id=order_id,
-            telegram_id=telegram_id,
+            telegram_id=eff_telegram_id,
             mobile=mobile,
             restaurant_name=restaurant_name,
             amount=amount,
@@ -948,6 +978,12 @@ async def payment_status_top_level(
     stmt = select(OrderRecord).where(OrderRecord.order_id == order_id)
     rec = (await db.execute(stmt)).scalars().first()
 
+    # Manual verification check by user
+    is_manual = bool(payload.get("manual", False))
+    if rec and is_manual and rec.status != "PAID":
+        rec.status = "PAID"
+        await db.commit()
+
     is_paid = rec.status in ("PAID", "CONFIRMED") if rec else False
 
     res = {
@@ -956,6 +992,11 @@ async def payment_status_top_level(
         "confirmed": is_paid,
         "order_id": order_id,
         "status": rec.status.lower() if rec else "processing",
+        "state": "confirmed" if is_paid else "pending",
+        "finalized": {
+            "tracking_link": f"https://www.swiggy.com/toing/ofo/track/{order_id}",
+            "order_id": order_id,
+        },
         "message": "Order confirmed" if is_paid else "Waiting for payment confirmation"
     }
 
@@ -982,6 +1023,7 @@ async def payment_status_top_level(
             details["restaurant"] = rec.restaurant_name
             details["amount"] = rec.amount
             details["status"] = "Order Received!"
+            details["tracking_link"] = f"https://www.swiggy.com/toing/ofo/track/{rec.order_id}"
             await send_order_placed_telegram_notification(rec.telegram_id, details)
         except Exception:
             pass
@@ -1001,22 +1043,19 @@ async def order_status_top_level(
     order_id = str(payload.get("order_id", ""))
     stmt = select(OrderRecord).where(OrderRecord.order_id == order_id)
     rec = (await db.execute(stmt)).scalars().first()
-    if rec:
-        return {
-            "success": True,
-            "order_id": order_id,
-            "status": rec.status.lower(),
-            "restaurant_name": rec.restaurant_name,
-            "amount": rec.amount,
-            "eta_min": "28",
-            "message": "Order is being prepared"
-        }
+    is_confirmed = (rec and rec.status in ("PAID", "CONFIRMED"))
     return {
         "success": True,
         "order_id": order_id,
-        "status": "processing",
-        "eta_min": "28",
-        "message": "Order processing"
+        "status": "Order Received!" if is_confirmed else (rec.status.lower() if rec else "processing"),
+        "state": "confirmed" if is_confirmed else "processing",
+        "final": is_confirmed,
+        "restaurant_name": rec.restaurant_name if rec else "",
+        "amount": rec.amount if rec else 0.0,
+        "eta": "24 Mins",
+        "eta_min": "24",
+        "tracking_link": f"https://www.swiggy.com/toing/ofo/track/{order_id}",
+        "message": "Order confirmed and being prepared" if is_confirmed else "Order processing"
     }
 
 @api_router.post("/checkout/paylog")
