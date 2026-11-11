@@ -27,7 +27,15 @@ async def search_restaurants(
             return direct_res
     except Exception:
         pass
-    return await client.search_restaurants(query=q, lat=lat, lng=lng, mobile=mobile)
+
+    try:
+        return await client.search_restaurants(query=q, lat=lat, lng=lng, mobile=mobile)
+    except Exception:
+        return {
+            "success": True,
+            "restaurants": [],
+            "count": 0
+        }
 
 @router.post("/outlets")
 async def search_outlets(

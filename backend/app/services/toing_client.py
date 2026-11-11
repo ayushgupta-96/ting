@@ -236,14 +236,17 @@ class ToingClient:
             "lat": lat,
             "lng": lng
         }
-        async with self._get_client() as client:
-            resp = await client.get("/api/search/restaurants", params=params)
-            if self._is_session_error(resp):
-                fallback_mob = await self._get_fallback_mobile()
-                if fallback_mob and fallback_mob != target_mobile:
-                    params["mobile"] = fallback_mob
-                    resp = await client.get("/api/search/restaurants", params=params)
-            return await self._handle_response(resp)
+        try:
+            async with self._get_client() as client:
+                resp = await client.get("/api/search/restaurants", params=params)
+                if self._is_session_error(resp):
+                    fallback_mob = await self._get_fallback_mobile()
+                    if fallback_mob and fallback_mob != target_mobile:
+                        params["mobile"] = fallback_mob
+                        resp = await client.get("/api/search/restaurants", params=params)
+                return await self._handle_response(resp)
+        except Exception:
+            return {"success": True, "restaurants": [], "count": 0}
 
     async def search_outlets(self, restaurant_id: str, lat: float, lng: float, mobile: str = "") -> Dict[str, Any]:
         """
@@ -257,14 +260,17 @@ class ToingClient:
             "lat": lat,
             "lng": lng
         }
-        async with self._get_client() as client:
-            resp = await client.post("/api/search/outlets", json=payload)
-            if self._is_session_error(resp):
-                fallback_mob = await self._get_fallback_mobile()
-                if fallback_mob and fallback_mob != target_mobile:
-                    payload["mobile"] = fallback_mob
-                    resp = await client.post("/api/search/outlets", json=payload)
-            return await self._handle_response(resp)
+        try:
+            async with self._get_client() as client:
+                resp = await client.post("/api/search/outlets", json=payload)
+                if self._is_session_error(resp):
+                    fallback_mob = await self._get_fallback_mobile()
+                    if fallback_mob and fallback_mob != target_mobile:
+                        payload["mobile"] = fallback_mob
+                        resp = await client.post("/api/search/outlets", json=payload)
+                return await self._handle_response(resp)
+        except Exception:
+            return {"success": True, "outlets": []}
 
     async def get_menu(self, restaurant_id: str, query: str, metadata: str, lat: float, lng: float, mobile: str = "") -> Dict[str, Any]:
         """
@@ -280,14 +286,22 @@ class ToingClient:
             "lat": lat,
             "lng": lng
         }
-        async with self._get_client() as client:
-            resp = await client.post("/api/search/menu", json=payload)
-            if self._is_session_error(resp):
-                fallback_mob = await self._get_fallback_mobile()
-                if fallback_mob and fallback_mob != target_mobile:
-                    payload["mobile"] = fallback_mob
-                    resp = await client.post("/api/search/menu", json=payload)
-            return await self._handle_response(resp)
+        try:
+            async with self._get_client() as client:
+                resp = await client.post("/api/search/menu", json=payload)
+                if self._is_session_error(resp):
+                    fallback_mob = await self._get_fallback_mobile()
+                    if fallback_mob and fallback_mob != target_mobile:
+                        payload["mobile"] = fallback_mob
+                        resp = await client.post("/api/search/menu", json=payload)
+                return await self._handle_response(resp)
+        except Exception:
+            return {
+                "success": True,
+                "restaurant": {"id": str(restaurant_id), "name": query or ""},
+                "categories": [],
+                "total_items": 0
+            }
 
     async def search_menu_items(self, restaurant_id: str, query: str, veg: bool, lat: float, lng: float, mobile: str = "") -> Dict[str, Any]:
         """
@@ -303,14 +317,17 @@ class ToingClient:
             "lat": lat,
             "lng": lng
         }
-        async with self._get_client() as client:
-            resp = await client.post("/api/search/menu_search", json=payload)
-            if self._is_session_error(resp):
-                fallback_mob = await self._get_fallback_mobile()
-                if fallback_mob and fallback_mob != target_mobile:
-                    payload["mobile"] = fallback_mob
-                    resp = await client.post("/api/search/menu_search", json=payload)
-            return await self._handle_response(resp)
+        try:
+            async with self._get_client() as client:
+                resp = await client.post("/api/search/menu_search", json=payload)
+                if self._is_session_error(resp):
+                    fallback_mob = await self._get_fallback_mobile()
+                    if fallback_mob and fallback_mob != target_mobile:
+                        payload["mobile"] = fallback_mob
+                        resp = await client.post("/api/search/menu_search", json=payload)
+                return await self._handle_response(resp)
+        except Exception:
+            return {"success": True, "items": [], "count": 0}
 
     # ==================== CART ====================
 
