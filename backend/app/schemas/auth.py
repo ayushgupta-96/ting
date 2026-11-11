@@ -32,6 +32,16 @@ class ToggleStatusRequest(BaseModel):
 class SwitchSessionRequest(BaseModel):
     mobile: str = Field(..., pattern=r"^[0-9]{10,15}$")
 
+class SendOtpRequest(BaseModel):
+    mobile: str = Field(..., min_length=10, max_length=15)
+
+class VerifyOtpRequest(BaseModel):
+    mobile: str = Field(..., min_length=10, max_length=15)
+    otp: str = Field(..., min_length=4, max_length=8)
+    tid: Optional[str] = None
+    sid: Optional[str] = None
+    deviceId: Optional[str] = None
+
 class AddressItem(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None

@@ -12,7 +12,11 @@ import {
   User, 
   Check, 
   Clipboard,
-  Loader2
+  Loader2,
+  Phone,
+  KeyRound,
+  ArrowRight,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function AccountsTab({
@@ -21,15 +25,98 @@ export default function AccountsTab({
   onSelectAccount,
   onDeleteAccount,
   onToggleStatus,
+  onSendOtp,
+  onVerifyOtp,
   onLoginJson,
   onErrorToast,
   onSuccessToast,
   loading = false,
 }) {
+  const [authMode, setAuthMode] = useState('otp'); // 'otp' | 'json'
+  
+  // OTP state
+  const [otpMobile, setOtpMobile] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSession, setOtpSession] = useState(null); // { tid, sid, deviceId }
+  const [otpSent, setOtpSent] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+
+  // JSON state
   const [jsonInput, setJsonInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('all'); // 'all' | 'fresh' | 'used'
+
+  const handleRequestOtp = async (e) => {
+    e.preventDefault();
+    const cleanMobile = otpMobile.replace(/\D/g, '').slice(-10);
+    if (!cleanMobile || cleanMobile.length !== 10) {
+      if (onErrorToast) onErrorToast('Please enter a valid 10-digit mobile number');
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      if (!onSendOtp) {
+        throw new Error('OTP service not connected');
+      }
+      const res = await onSendOtp(cleanMobile);
+      if (res && res.success) {
+        setOtpSession({
+          tid: res.tid,
+          sid: res.sid,
+          deviceId: res.deviceId
+        });
+        setOtpSent(true);
+        if (onSuccessToast) onSuccessToast(`OTP sent to +91 ${cleanMobile}`);
+      } else {
+        throw new Error(res?.detail || res?.message || 'Failed to send OTP');
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to send OTP';
+      if (onErrorToast) onErrorToast(msg);
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtpSubmit = async (e) => {
+    e.preventDefault();
+    const cleanCode = otpCode.trim();
+    if (!cleanCode || cleanCode.length < 4) {
+      if (onErrorToast) onErrorToast('Please enter the OTP received');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      if (!onVerifyOtp) {
+        throw new Error('Verify service not connected');
+      }
+      const res = await onVerifyOtp({
+        mobile: otpMobile.replace(/\D/g, '').slice(-10),
+        otp: cleanCode,
+        tid: otpSession?.tid,
+        sid: otpSession?.sid,
+        deviceId: otpSession?.deviceId
+      });
+      if (res && res.success) {
+        setOtpSent(false);
+        setOtpCode('');
+        setOtpMobile('');
+        setOtpSession(null);
+        if (onSuccessToast) onSuccessToast(`Connected account ${res.account?.name || ''}!`);
+      } else {
+        throw new Error(res?.detail || res?.message || 'OTP verification failed');
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.response?.data?.message || err.message || 'OTP verification failed';
+      if (onErrorToast) onErrorToast(msg);
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
 
   // Filter calculation with safe fallback to 'fresh'
   const filteredAccounts = (accounts || []).filter((acc) => {
@@ -133,7 +220,7 @@ export default function AccountsTab({
 
   return (
     <div className="space-y-4 pb-24">
-      {/* 1. Add Account Card (JSON-Only Mode directly) */}
+      {/* 1. Add Account Card */}
       <div className="bg-white dark:bg-[#1E293B] rounded-3xl p-4 shadow-card border border-gray-100 dark:border-gray-800 transition-colors space-y-3">
         {/* Card Header */}
         <div className="flex items-center justify-between">
@@ -143,51 +230,181 @@ export default function AccountsTab({
             </div>
             <div>
               <h2 className="font-extrabold text-sm text-gray-900 dark:text-white">Add Account</h2>
-              <p className="text-[10px] text-gray-400">Import session via JSON</p>
+              <p className="text-[10px] text-gray-400">
+                {authMode === 'otp' ? 'Direct Official Swiggy/Toing Login' : 'Import session via JSON'}
+              </p>
             </div>
           </div>
 
+          {authMode === 'json' && (
+            <button
+              type="button"
+              onClick={handlePasteClipboard}
+              className="flex items-center space-x-1 px-3 py-1 rounded-full bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/60 text-[#7C3AED] dark:text-purple-300 text-xs font-bold hover:bg-purple-100 transition-all active:scale-95"
+              title="Paste from clipboard"
+            >
+              <Clipboard className="w-3.5 h-3.5" />
+              <span>Paste</span>
+            </button>
+          )}
+        </div>
+
+        {/* Auth Mode Switcher */}
+        <div className="flex bg-gray-100 dark:bg-gray-800/80 p-1 rounded-2xl">
           <button
             type="button"
-            onClick={handlePasteClipboard}
-            className="flex items-center space-x-1 px-3 py-1 rounded-full bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/60 text-[#7C3AED] dark:text-purple-300 text-xs font-bold hover:bg-purple-100 transition-all active:scale-95"
-            title="Paste from clipboard"
+            onClick={() => setAuthMode('otp')}
+            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              authMode === 'otp'
+                ? 'bg-white dark:bg-[#0F172A] text-[#7C3AED] dark:text-purple-300 shadow-sm'
+                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+            }`}
           >
-            <Clipboard className="w-3.5 h-3.5" />
-            <span>Paste</span>
+            <Phone className="w-3.5 h-3.5" />
+            <span>Mobile OTP</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAuthMode('json')}
+            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              authMode === 'json'
+                ? 'bg-white dark:bg-[#0F172A] text-[#7C3AED] dark:text-purple-300 shadow-sm'
+                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            <Code className="w-3.5 h-3.5" />
+            <span>JSON Session</span>
           </button>
         </div>
 
-        {/* JSON Credentials Form */}
-        <form onSubmit={handleJsonSubmit} className="space-y-3">
-          <div>
-            <textarea
-              rows={5}
-              placeholder={`{\n  "mobile": "...",\n  "name": "...",\n  "token": "...",\n  "tid": "...",\n  "sid": "...",\n  "deviceId": "...",\n  "customerId": "..."\n}`}
-              value={jsonInput}
-              onChange={(e) => setJsonInput(e.target.value)}
-              className="w-full border border-gray-200 dark:border-gray-700 rounded-2xl bg-gray-50/60 dark:bg-gray-800/60 p-3 text-xs font-mono text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 leading-relaxed shadow-inner"
-            />
-          </div>
+        {/* Mode 1: Mobile OTP Form */}
+        {authMode === 'otp' && (
+          <div className="space-y-3 pt-1">
+            {!otpSent ? (
+              <form onSubmit={handleRequestOtp} className="space-y-3">
+                <div className="relative">
+                  <span className="absolute left-3.5 top-3 text-xs font-bold text-gray-500 dark:text-gray-400">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    maxLength={10}
+                    placeholder="Enter 10-digit mobile number"
+                    value={otpMobile}
+                    onChange={(e) => setOtpMobile(e.target.value.replace(/\D/g, ''))}
+                    className="w-full bg-gray-50/60 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl pl-12 pr-4 py-2.5 text-xs font-semibold text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 shadow-inner"
+                  />
+                </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-gradient-to-r from-[#9061F9] to-[#7E3AF2] hover:from-[#7E3AF2] hover:to-[#6C2BD9] disabled:opacity-60 text-white font-extrabold py-3 px-4 rounded-2xl shadow-lg shadow-purple-500/25 flex items-center justify-center space-x-2 transition-all active:scale-[0.99]"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Authenticating & Importing...</span>
-              </>
+                <button
+                  type="submit"
+                  disabled={isSendingOtp || otpMobile.length !== 10}
+                  className="w-full bg-gradient-to-r from-[#9061F9] to-[#7E3AF2] hover:from-[#7E3AF2] hover:to-[#6C2BD9] disabled:opacity-50 text-white font-extrabold py-3 px-4 rounded-2xl shadow-lg shadow-purple-500/25 flex items-center justify-center space-x-2 transition-all active:scale-[0.99]"
+                >
+                  {isSendingOtp ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending OTP...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Phone className="w-4 h-4" />
+                      <span>Send OTP via SMS</span>
+                    </>
+                  )}
+                </button>
+              </form>
             ) : (
-              <>
-                <LogIn className="w-4 h-4" />
-                <span>Login with JSON</span>
-              </>
+              <form onSubmit={handleVerifyOtpSubmit} className="space-y-3">
+                <div className="flex items-center justify-between px-1 text-xs">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    OTP sent to <span className="font-bold text-gray-800 dark:text-white">+91 {otpMobile}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setOtpSent(false); setOtpCode(''); }}
+                    className="text-purple-600 dark:text-purple-400 font-bold hover:underline text-[11px]"
+                  >
+                    Change Number
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 absolute left-3.5 top-3 text-purple-500" />
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="Enter 6-digit OTP"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    className="w-full bg-gray-50/60 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-mono font-bold tracking-widest text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 shadow-inner"
+                  />
+                </div>
+
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleRequestOtp}
+                    disabled={isSendingOtp}
+                    className="flex-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 text-gray-700 dark:text-gray-300 font-bold py-2.5 px-3 rounded-2xl text-xs transition-all"
+                  >
+                    Resend
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isVerifyingOtp || otpCode.trim().length < 4}
+                    className="flex-[2] bg-gradient-to-r from-[#9061F9] to-[#7E3AF2] hover:from-[#7E3AF2] hover:to-[#6C2BD9] disabled:opacity-50 text-white font-extrabold py-2.5 px-4 rounded-2xl shadow-lg shadow-purple-500/25 flex items-center justify-center space-x-2 transition-all active:scale-[0.99]"
+                  >
+                    {isVerifyingOtp ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Verify & Connect</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
             )}
-          </button>
-        </form>
+          </div>
+        )}
+
+        {/* Mode 2: JSON Credentials Form */}
+        {authMode === 'json' && (
+          <form onSubmit={handleJsonSubmit} className="space-y-3 pt-1">
+            <div>
+              <textarea
+                rows={5}
+                placeholder={`{\n  "mobile": "...",\n  "name": "...",\n  "token": "...",\n  "tid": "...",\n  "sid": "...",\n  "deviceId": "...",\n  "customerId": "..."\n}`}
+                value={jsonInput}
+                onChange={(e) => setJsonInput(e.target.value)}
+                className="w-full border border-gray-200 dark:border-gray-700 rounded-2xl bg-gray-50/60 dark:bg-gray-800/60 p-3 text-xs font-mono text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 leading-relaxed shadow-inner"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-gradient-to-r from-[#9061F9] to-[#7E3AF2] hover:from-[#7E3AF2] hover:to-[#6C2BD9] disabled:opacity-60 text-white font-extrabold py-3 px-4 rounded-2xl shadow-lg shadow-purple-500/25 flex items-center justify-center space-x-2 transition-all active:scale-[0.99]"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Authenticating & Importing...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>Login with JSON</span>
+                </>
+              )}
+            </button>
+          </form>
+        )}
       </div>
 
       {/* 2. Saved Accounts Header */}

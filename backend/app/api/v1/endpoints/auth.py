@@ -3,6 +3,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from typing import Dict, Any, List, Optional
 import json
+import base64
+
+def extract_customer_id_from_tid(tid: str) -> Optional[str]:
+    try:
+        parts = tid.split(".")
+        if len(parts) >= 2:
+            payload = parts[1]
+            payload += "=" * (-len(payload) % 4)
+            data = json.loads(base64.urlsafe_b64decode(payload))
+            uid = data.get("user_id")
+            if uid and uid != "0":
+                return str(uid)
+            sub = data.get("sub", "")
+            if "userId~" in sub:
+                import re
+                m = re.search(r"userId~([0-9]+)", sub)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
 
 from app.core.database import get_db
 from app.models.user import User, AccountSession
@@ -11,9 +32,12 @@ from app.schemas.auth import (
     LoginJsonRequest,
     SwitchSessionRequest,
     JsonLoginPayload,
-    ToggleStatusRequest
+    ToggleStatusRequest,
+    SendOtpRequest,
+    VerifyOtpRequest
 )
 from app.services.toing_client import ToingClient
+from app.services.swiggy_direct_client import SwiggyDirectClient
 from app.services.session_manager import SessionManager
 from app.api.deps import get_telegram_user_id, get_current_telegram_user, get_current_user, get_user_toing_client
 
@@ -59,6 +83,102 @@ async def validate_webapp(
             pass
 
     return result
+
+@router.post("/send-otp")
+async def send_otp(
+    payload: SendOtpRequest
+) -> Dict[str, Any]:
+    """
+    Direct official Toing/Swiggy SMS OTP sender.
+    Calls profile.swiggy.com/api/v3/app/sms_otp?mobile=...
+    """
+    client = SwiggyDirectClient()
+    return await client.send_sms_otp(payload.mobile)
+
+@router.post("/verify-otp")
+async def verify_otp(
+    payload: VerifyOtpRequest,
+    telegram_id: int = Depends(get_telegram_user_id),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Direct official Toing/Swiggy SMS OTP verification.
+    Calls profile.swiggy.com/api/v3/app/login/verify?otp_source=Sms-automatic
+    Saves the verified session strictly scoped to user's telegram_id.
+    """
+    clean_mobile = payload.mobile.replace("+91", "").replace(" ", "").strip()
+    client = SwiggyDirectClient(
+        device_id=payload.deviceId,
+        tid=payload.tid,
+        sid=payload.sid
+    )
+    result = await client.verify_otp(
+        mobile=clean_mobile,
+        otp=payload.otp,
+        tid=payload.tid,
+        sid=payload.sid,
+        device_id=payload.deviceId
+    )
+
+    # Save to AccountSession
+    stmt = select(AccountSession).where(
+        AccountSession.telegram_id == telegram_id,
+        AccountSession.mobile == clean_mobile
+    )
+    db_res = await db.execute(stmt)
+    existing_acc = db_res.scalars().first()
+
+    account_name = result.get("name") or f"User {clean_mobile[-4:]}"
+
+    if existing_acc:
+        existing_acc.name = account_name
+        existing_acc.token = result["token"]
+        existing_acc.tid = result["tid"]
+        existing_acc.sid = result["sid"]
+        existing_acc.device_id = result["deviceId"]
+        existing_acc.customer_id = result["customer_id"]
+        acc_obj = existing_acc
+    else:
+        acc_obj = AccountSession(
+            telegram_id=telegram_id,
+            mobile=clean_mobile,
+            name=account_name,
+            token=result["token"],
+            tid=result["tid"],
+            sid=result["sid"],
+            device_id=result["deviceId"],
+            customer_id=result["customer_id"],
+            status="fresh"
+        )
+        db.add(acc_obj)
+
+    # Update User's active_mobile
+    stmt_user = select(User).where(User.telegram_id == telegram_id)
+    u_res = await db.execute(stmt_user)
+    user = u_res.scalars().first()
+    if user:
+        user.active_mobile = clean_mobile
+
+    await db.commit()
+    await db.refresh(acc_obj)
+
+    return {
+        "success": True,
+        "message": "Account verified and connected successfully!",
+        "account": {
+            "id": str(acc_obj.id),
+            "name": acc_obj.name,
+            "mobile": clean_mobile,
+            "phone": f"+91 {clean_mobile}",
+            "token": acc_obj.token,
+            "tid": acc_obj.tid,
+            "sid": acc_obj.sid,
+            "deviceId": acc_obj.device_id,
+            "customerId": acc_obj.customer_id,
+            "status": acc_obj.status
+        },
+        "addresses": result.get("addresses", [])
+    }
 
 @router.post("/json-login")
 async def json_login(
@@ -109,13 +229,20 @@ async def json_login(
     if not account_name:
         account_name = f"User {clean_mobile[-4:]}"
 
+    # Resolve customer ID with auto-fallback from TID JWT
+    resolved_cust_id = payload.customerId
+    if not resolved_cust_id or resolved_cust_id == "cust_default":
+        extracted = extract_customer_id_from_tid(payload.tid)
+        if extracted:
+            resolved_cust_id = extracted
+
     if existing_acc:
         existing_acc.name = account_name
         existing_acc.token = payload.token
         existing_acc.tid = payload.tid
         existing_acc.sid = payload.sid
         existing_acc.device_id = payload.deviceId
-        existing_acc.customer_id = payload.customerId
+        existing_acc.customer_id = resolved_cust_id
         acc_obj = existing_acc
     else:
         acc_obj = AccountSession(
@@ -126,7 +253,7 @@ async def json_login(
             tid=payload.tid,
             sid=payload.sid,
             device_id=payload.deviceId,
-            customer_id=payload.customerId,
+            customer_id=resolved_cust_id,
             status="fresh"
         )
         db.add(acc_obj)

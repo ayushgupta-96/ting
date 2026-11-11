@@ -91,6 +91,8 @@ apiClient.interceptors.response.use(
 
 export const api = {
   // Auth & Accounts
+  sendOtp: (mobile) => apiClient.post('/auth/send-otp', { mobile }),
+  verifyOtp: (payload) => apiClient.post('/auth/verify-otp', payload),
   jsonLogin: (credentials) => apiClient.post('/auth/json-login', credentials),
   getSavedAccounts: () => apiClient.get('/auth/accounts'),
   toggleAccountStatus: (id) => apiClient.post('/auth/toggle-status', { id }),

@@ -319,8 +319,19 @@ export default function App() {
     }
   };
 
-  const handleSendOtp = (phone) => {
-    showToast('error', 'OTP endpoint not configured. Please use < > JSON login.');
+  const handleSendOtp = async (phone) => {
+    return await api.sendOtp(phone);
+  };
+
+  const handleVerifyOtp = async (payload) => {
+    const res = await api.verifyOtp(payload);
+    if (res && res.success && res.account) {
+      setActiveAccount(res.account);
+      localStorage.setItem(accountStorageKey, JSON.stringify(res.account));
+      await loadSavedAccounts();
+      return res;
+    }
+    return res;
   };
 
   // Cart Operations (Strict Toing / Swiggy Food Ordering Business Rules)
@@ -409,6 +420,7 @@ export default function App() {
             onDeleteAccount={handleDeleteAccount}
             onToggleStatus={handleToggleStatus}
             onSendOtp={handleSendOtp}
+            onVerifyOtp={handleVerifyOtp}
             onLoginJson={handleLoginJson}
             onErrorToast={(msg) => showToast('error', msg)}
             onSuccessToast={(msg) => showToast('success', msg)}
