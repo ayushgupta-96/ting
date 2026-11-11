@@ -3,13 +3,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional
 import json
 from app.core.database import get_db
-from app.models.user import User, OrderRecord
+from app.models.user import User, OrderRecord, AccountSession
 from app.schemas.order import CouponRequest, PaymentOptionsRequest, PlaceOrderRequest
-from app.services.toing_client import ToingClient
-from app.api.deps import get_telegram_user_id, get_optional_telegram_user_id, get_current_user, get_user_toing_client
-
+from app.api.deps import get_telegram_user_id, get_optional_telegram_user_id, get_current_user
 from app.services.swiggy_direct_client import SwiggyDirectClient
-from app.models.user import AccountSession
 from sqlalchemy import select
 
 router = APIRouter()
@@ -71,27 +68,32 @@ async def apply_coupon(
 async def get_payment_options(
     payload: PaymentOptionsRequest,
     user: User = Depends(get_current_user),
-    client: ToingClient = Depends(get_user_toing_client)
 ) -> Dict[str, Any]:
     """
     Retrieve available payment options (COD, UPI).
     """
-    mobile = payload.mobile or user.active_mobile or ""
-    return await client.get_payment_options(
-        mobile=mobile,
-        cart_id=payload.cart_id,
-        address_id=payload.address_id,
-        restaurant_id=payload.restaurant_id,
-        cart_value=payload.cart_value,
-        lat=payload.lat,
-        lng=payload.lng
-    )
+    return {
+        "success": True,
+        "payment_methods": [
+            {
+                "type": "upi",
+                "name": "UPI / QR",
+                "available": True,
+                "description": "Pay with any payment apps (GPay, PhonePe, Paytm, BHIM)"
+            },
+            {
+                "type": "cod",
+                "name": "Cash on Delivery",
+                "available": False,
+                "description": "Adding soon"
+            }
+        ]
+    }
 
 @router.post("/place")
 async def place_order(
     payload: PlaceOrderRequest,
     user: User = Depends(get_current_user),
-    client: ToingClient = Depends(get_user_toing_client),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """
@@ -184,38 +186,6 @@ async def list_orders(
 
     seen_ids = set()
     order_list = []
-
-    # 1. Fetch real orders synchronized directly from upstream Toing
-    if clean_mobile:
-        acc_stmt = select(AccountSession).where(
-            AccountSession.mobile == clean_mobile
-        )
-        if telegram_id:
-            acc_stmt = acc_stmt.where(AccountSession.telegram_id == telegram_id)
-        acc = (await db.execute(acc_stmt)).scalars().first()
-        if acc:
-            try:
-                client = ToingClient(access_key=None, tid=acc.tid, token=acc.token, sid=acc.sid)
-                upstream_res = await client.get_orders(clean_mobile)
-                if upstream_res.get("orders"):
-                    for uo in upstream_res["orders"]:
-                        oid = str(uo.get("order_id", ""))
-                        if oid:
-                            seen_ids.add(oid)
-                            order_list.append({
-                                "id": oid,
-                                "order_id": oid,
-                                "restaurant_name": uo.get("restaurant_name") or uo.get("restaurant") or "Toing Order",
-                                "area": uo.get("area", ""),
-                                "amount": float(uo.get("order_total", 0)),
-                                "payment_method": uo.get("payment", "UPI"),
-                                "status": uo.get("order_status", "Order Received!"),
-                                "items_text": uo.get("items_text", ""),
-                                "tracking_link": uo.get("tracking_link", ""),
-                                "created_at": uo.get("order_time")
-                            })
-            except Exception:
-                pass
 
     # 2. Include local DB records ONLY IF verified/confirmed (never show uncompleted/dummy processing)
     if telegram_id:

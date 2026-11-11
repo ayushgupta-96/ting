@@ -834,14 +834,45 @@ class SwiggyDirectClient:
         self.sid = sid or self.sid
         self.device_id = device_id or self.device_id
 
+        # Auto-discover from SQLite account_sessions if missing
+        if (not self.tid or not self.token) and mobile:
+            clean_mobile = mobile.replace("+91", "").replace(" ", "").strip()
+            try:
+                import sqlite3
+                from pathlib import Path
+                db_path = str(Path(__file__).resolve().parent.parent.parent / "toing.db")
+                conn = sqlite3.connect(db_path)
+                c = conn.cursor()
+                c.execute(
+                    "SELECT customer_id, tid, token, sid, device_id FROM account_sessions WHERE mobile=? ORDER BY id DESC LIMIT 1",
+                    (clean_mobile,)
+                )
+                row = c.fetchone()
+                if row:
+                    self.tid = self.tid or row[1]
+                    self.token = self.token or row[2]
+                    self.sid = self.sid or row[3]
+                    self.device_id = self.device_id or row[4]
+                conn.close()
+            except Exception:
+                pass
+
         headers = self._get_base_headers("maps.swiggy.com")
         headers["Accept"] = "application/x-protobuf, application/json; charset=utf-8"
         headers["Content-Type"] = "application/json; charset=utf-8"
         headers["Cache-Control"] = "no-store"
         headers["latitude"] = str(lat)
         headers["longitude"] = str(lng)
+        if self.tid:
+            headers["Tid"] = self.tid.replace("Bearer ", "").strip()
         if self.token:
             headers["token"] = self.token
+        if self.sid:
+            headers["sid"] = self.sid
+        if self.device_id:
+            headers["deviceId"] = self.device_id
+            headers["swuid"] = self.device_id
+        headers["x-channel"] = "toing-app"
 
         payload = {
             "address": address,

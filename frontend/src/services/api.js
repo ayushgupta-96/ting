@@ -105,6 +105,7 @@ export const api = {
   saveAddressLink: (link, mobile) => apiClient.post('/addresses/add_link', { link, mobile }),
   addAddressLink: (link, mobile) => apiClient.post('/addresses/add_link', { link, mobile }),
   reverseGeocode: (lat, lng, mobile) => apiClient.get('/location/reverse', { params: { lat, lng, mobile } }),
+  searchLocations: (query) => apiClient.get('/location/search', { params: { query } }),
 
   // Orders & Checkout
   getOrders: (mobile) => apiClient.get('/orders', { params: { mobile } }),

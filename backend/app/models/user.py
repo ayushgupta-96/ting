@@ -51,6 +51,30 @@ class SavedAddressLink(Base):
     link = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class SavedAddress(Base):
+    __tablename__ = "saved_addresses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    address_id = Column(String(100), unique=True, index=True, nullable=False)
+    telegram_id = Column(BigInteger, index=True, nullable=True)
+    mobile = Column(String(20), index=True, nullable=False)
+    name = Column(String(100), nullable=True)
+    phone = Column(String(20), nullable=True)
+    flat_no = Column(String(100), nullable=True)
+    house = Column(String(100), nullable=True)
+    area = Column(String(255), nullable=True)
+    city = Column(String(100), nullable=True)
+    state = Column(String(100), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    landmark = Column(String(255), nullable=True)
+    formatted_address = Column(Text, nullable=False)
+    lat = Column(Float, nullable=False)
+    lng = Column(Float, nullable=False)
+    annotation = Column(String(50), default="HOME")
+    tag = Column(String(50), default="HOME")
+    is_account_address = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class OrderRecord(Base):
     __tablename__ = "order_records"
 
