@@ -78,7 +78,8 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 403) {
+    const isSearch = error.config?.url?.includes('/search') || error.config?.url?.includes('/catalog');
+    if (error.response?.status === 403 && !isSearch) {
       try {
         if (WebApp?.isVersionAtLeast && WebApp.isVersionAtLeast('6.2') && typeof WebApp.showAlert === 'function') {
           WebApp.showAlert('Session expired or unauthorized. Please login again.');

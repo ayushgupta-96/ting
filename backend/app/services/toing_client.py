@@ -54,9 +54,21 @@ class ToingClient:
         Every failure raises an explicit HTTPException returning the exact upstream error.
         """
         if response.status_code in (401, 403):
+            try:
+                err_data = response.json()
+                err_detail = err_data.get("detail") or err_data.get("error") or ""
+            except Exception:
+                err_detail = response.text[:200]
+
+            if "ProxyError" in err_detail or "Unable to connect" in err_detail or "Max retries exceeded" in err_detail or "HTTPSConnectionPool" in err_detail:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Rival server upstream proxy is down. Please provide direct Toing search trace."
+                )
+
             raise HTTPException(
                 status_code=403,
-                detail="Session expired or blocked. Please login again."
+                detail=err_detail or "Session expired or blocked. Please login again."
             )
         
         if response.status_code >= 400:
