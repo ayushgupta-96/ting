@@ -1,7 +1,10 @@
 import axios from 'axios';
 import WebApp from '@twa-dev/sdk';
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE || 
+  (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
+    ? 'https://myth-whats-salvation-exploring.trycloudflare.com/api/v1'
+    : '/api/v1');
 
 const apiClient = axios.create({
   baseURL: API_BASE,
