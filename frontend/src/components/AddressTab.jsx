@@ -36,18 +36,18 @@ export default function AddressTab({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
-  // Form Fields matching exact HAR payload
-  const [lat, setLat] = useState(22.572507);
-  const [lng, setLng] = useState(88.364303);
+  // Form Fields initialized dynamically from active location if present
+  const [lat, setLat] = useState(() => activeAddress?.lat || 28.4535279);
+  const [lng, setLng] = useState(() => activeAddress?.lng || 77.4987012);
   const [house, setHouse] = useState('');
-  const [area, setArea] = useState('');
+  const [area, setArea] = useState(() => activeAddress?.area || '');
   const [landmark, setLandmark] = useState('');
   const [annotation, setAnnotation] = useState('Home'); // 'Home' | 'Friends & Family' | 'Other'
   const [receiverName, setReceiverName] = useState(activeAccount?.name || 'Self');
   const [receiverPhone, setReceiverPhone] = useState(activeAccount?.mobile || '');
-  const [city, setCity] = useState('Kolkata');
-  const [stateName, setStateName] = useState('West Bengal');
-  const [postalCode, setPostalCode] = useState('700012');
+  const [city, setCity] = useState(() => activeAddress?.city || '');
+  const [stateName, setStateName] = useState(() => activeAddress?.state || '');
+  const [postalCode, setPostalCode] = useState(() => activeAddress?.postal_code || '');
 
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);

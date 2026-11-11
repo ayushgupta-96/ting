@@ -492,12 +492,12 @@ class SwiggyDirectClient:
         seen_dish_ids = set()
         restaurant_info = {
             "id": str(restaurant_id),
-            "name": restaurant_name or "Restaurant",
+            "name": restaurant_name or "",
             "area": "",
             "city": "",
             "image": "",
-            "rating": "4.2",
-            "cost_for_two": "₹350 FOR TWO",
+            "rating": "",
+            "cost_for_two": "",
             "cuisines": []
         }
 

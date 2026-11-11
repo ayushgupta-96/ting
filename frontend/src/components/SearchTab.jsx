@@ -401,13 +401,13 @@ export default function SearchTab({
               {/* Restaurant Cards */}
               <div className="space-y-2.5">
                 {filteredRestaurants.map((rest) => {
-                  const ratingVal = rest.rating || '4.1';
-                  const slaText = rest.sla || '30-35 mins';
-                  const areaText = rest.area || rest.city || (activeAddress?.city ? activeAddress.city : 'Nearby');
-                  const distText = rest.distance || '4.2 km';
+                  const ratingVal = rest.rating;
+                  const slaText = rest.sla;
+                  const areaText = rest.area || rest.city || (activeAddress?.city ? activeAddress.city : '');
+                  const distText = rest.distance;
                   const cuisinesText = Array.isArray(rest.cuisines)
                     ? rest.cuisines.join(', ')
-                    : rest.cuisines || 'Snacks, Fast Food';
+                    : rest.cuisines || '';
 
                   return (
                     <div
@@ -421,18 +421,20 @@ export default function SearchTab({
                       className="bg-white dark:bg-[#1E293B] rounded-2xl p-3 border border-gray-100 dark:border-gray-800 shadow-card flex items-center justify-between cursor-pointer hover:border-purple-300 active:scale-[0.99] transition-all group"
                     >
                       <div className="flex items-center space-x-3 min-w-0">
-                        <img
-                          src={
-                            rest.image ||
-                            'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=160'
-                          }
-                          alt={rest.name}
-                          className="w-16 h-16 rounded-2xl object-cover bg-gray-100 dark:bg-gray-800 flex-shrink-0"
-                          onError={(e) => {
-                            e.target.src =
-                              'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=160';
-                          }}
-                        />
+                        {rest.image ? (
+                          <img
+                            src={rest.image}
+                            alt={rest.name}
+                            className="w-16 h-16 rounded-2xl object-cover bg-gray-100 dark:bg-gray-800 flex-shrink-0"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-2xl bg-purple-50 dark:bg-purple-950/60 flex items-center justify-center text-[#7C3AED] dark:text-purple-300 flex-shrink-0">
+                            <Store className="w-6 h-6" />
+                          </div>
+                        )}
 
                         <div className="min-w-0 space-y-0.5">
                           <h4 className="font-extrabold text-xs text-gray-900 dark:text-white truncate group-hover:text-purple-600 transition-colors">
@@ -440,29 +442,39 @@ export default function SearchTab({
                           </h4>
 
                           {/* Rating & SLA row */}
-                          <div className="flex items-center space-x-2 text-[11px]">
-                            <span className="bg-[#059669] text-white text-[10px] font-black px-1.5 py-0.5 rounded-md flex items-center space-x-0.5">
-                              <Star className="w-2.5 h-2.5 fill-white" />
-                              <span>{ratingVal}</span>
-                            </span>
-                            <span className="text-gray-600 dark:text-gray-300 font-bold flex items-center space-x-1">
-                              <Clock className="w-3 h-3 text-gray-400" />
-                              <span>{slaText}</span>
-                            </span>
-                          </div>
+                          {(ratingVal || slaText) && (
+                            <div className="flex items-center space-x-2 text-[11px]">
+                              {ratingVal && (
+                                <span className="bg-[#059669] text-white text-[10px] font-black px-1.5 py-0.5 rounded-md flex items-center space-x-0.5">
+                                  <Star className="w-2.5 h-2.5 fill-white" />
+                                  <span>{ratingVal}</span>
+                                </span>
+                              )}
+                              {slaText && (
+                                <span className="text-gray-600 dark:text-gray-300 font-bold flex items-center space-x-1">
+                                  <Clock className="w-3 h-3 text-gray-400" />
+                                  <span>{slaText}</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
 
                           {/* Cuisines */}
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
-                            {cuisinesText}
-                          </p>
+                          {cuisinesText && (
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                              {cuisinesText}
+                            </p>
+                          )}
 
                           {/* Area & Distance */}
-                          <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center space-x-1 truncate">
-                            <MapPin className="w-3 h-3 text-red-500 flex-shrink-0" />
-                            <span>{areaText}</span>
-                            <span>•</span>
-                            <span>{distText}</span>
-                          </p>
+                          {(areaText || distText) && (
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center space-x-1 truncate">
+                              <MapPin className="w-3 h-3 text-red-500 flex-shrink-0" />
+                              {areaText && <span>{areaText}</span>}
+                              {areaText && distText && <span>•</span>}
+                              {distText && <span>{distText}</span>}
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -533,20 +545,21 @@ export default function SearchTab({
           {/* 2. Restaurant Hero Banner Card (Screenshot 4) */}
           <div className="relative rounded-3xl overflow-hidden shadow-card border border-gray-100 dark:border-gray-800">
             <div className="h-44 w-full relative">
-              <img
-                src={
-                  restaurantInfo.cover ||
-                  restaurantInfo.image ||
-                  activeRest.image ||
-                  'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800'
-                }
-                alt={activeRest.name}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.target.src =
-                    'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800';
-                }}
-              />
+              {restaurantInfo.cover || restaurantInfo.image || activeRest.image ? (
+                <img
+                  src={
+                    restaurantInfo.cover ||
+                    restaurantInfo.image ||
+                    activeRest.image
+                  }
+                  alt={activeRest.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-purple-700 via-indigo-800 to-gray-900 flex items-center justify-center">
+                  <Store className="w-12 h-12 text-white/50" />
+                </div>
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
 
               {/* Title & Rating overlay */}
@@ -554,10 +567,12 @@ export default function SearchTab({
                 <h2 className="text-white font-black text-lg drop-shadow truncate pr-2">
                   {activeRest.name}
                 </h2>
-                <div className="bg-[#059669] text-white text-xs font-black px-2 py-0.5 rounded-lg flex items-center space-x-1 shadow-md flex-shrink-0">
-                  <Star className="w-3 h-3 fill-white" />
-                  <span>{activeRest.rating || '4.1'}</span>
-                </div>
+                {activeRest.rating && (
+                  <div className="bg-[#059669] text-white text-xs font-black px-2 py-0.5 rounded-lg flex items-center space-x-1 shadow-md flex-shrink-0">
+                    <Star className="w-3 h-3 fill-white" />
+                    <span>{activeRest.rating}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -577,16 +592,23 @@ export default function SearchTab({
                 </div>
               </div>
 
-              <div className="h-6 w-[1px] bg-gray-200 dark:bg-gray-700 mx-2" />
-
-              <div className="text-right flex-shrink-0">
-                <p className="text-[10px] font-black text-gray-400">
-                  {activeRest.distance || 'Nearby'}
-                </p>
-                <p className="text-xs font-black text-gray-900 dark:text-white">
-                  {activeRest.sla || '25-35 mins'}
-                </p>
-              </div>
+              {(activeRest.distance || activeRest.sla) && (
+                <>
+                  <div className="h-6 w-[1px] bg-gray-200 dark:bg-gray-700 mx-2" />
+                  <div className="text-right flex-shrink-0">
+                    {activeRest.distance && (
+                      <p className="text-[10px] font-black text-gray-400">
+                        {activeRest.distance}
+                      </p>
+                    )}
+                    {activeRest.sla && (
+                      <p className="text-xs font-black text-gray-900 dark:text-white">
+                        {activeRest.sla}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -613,7 +635,6 @@ export default function SearchTab({
               }`}
             >
               <span>Under ₹99</span>
-              <span className="bg-amber-300 text-gray-950 text-[9px] px-1 rounded font-black">PAY ₹1</span>
             </button>
             <button
               type="button"
@@ -786,12 +807,6 @@ export default function SearchTab({
                                   <p className="font-black text-xs text-gray-900 dark:text-white">
                                     ₹{price}
                                   </p>
-                                  {price <= 99 && (
-                                    <span className="bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 font-black text-[9px] px-1.5 py-0.5 rounded-md inline-flex items-center space-x-0.5">
-                                      <Sparkles className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                                      <span>PAY ₹1</span>
-                                    </span>
-                                  )}
                                 </div>
 
                                 {item.description && (

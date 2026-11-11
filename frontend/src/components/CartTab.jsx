@@ -279,7 +279,7 @@ export default function CartTab({
       setToPayAmount(subtotal);
       setBillLines([
         { key: 'item_total', label: 'Item Total', value: `${subtotal.toFixed(1)}`, negative: false, total: false },
-        { key: 'delivery', label: 'Delivery Fee', value: 'FREE', strike: '26', negative: false, total: false },
+        { key: 'delivery', label: 'Delivery Fee', value: 'FREE', negative: false, total: false },
         { key: 'grand_total', label: 'To Pay', value: `${subtotal.toFixed(1)}`, negative: false, total: true },
       ]);
     } finally {
@@ -658,15 +658,15 @@ export default function CartTab({
                       <div className="flex items-center space-x-2 min-w-0">
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
                         <h4 className="font-black text-xs text-gray-900 dark:text-white truncate">
-                          Next Fresh Account Ready
+                          Next Account Ready
                         </h4>
                       </div>
                       <span className="bg-emerald-600 text-white font-black text-[9px] px-2 py-0.5 rounded-full uppercase flex-shrink-0">
-                        FRESH · ₹50 CASH
+                        READY
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-600 dark:text-gray-300">
-                      Switch to <strong>{nextFresh.name || nextFresh.mobile}</strong> (+91 {nextFresh.mobile}) to claim another ₹50 Free Cash and place a ₹1 order!
+                      Switch to <strong>{nextFresh.name || nextFresh.mobile}</strong> (+91 {nextFresh.mobile}) to order from this account.
                     </p>
                     <button
                       type="button"
@@ -681,14 +681,14 @@ export default function CartTab({
                       className="w-full bg-[#059669] hover:bg-emerald-700 text-white font-black text-xs py-3 rounded-2xl shadow-md flex items-center justify-center space-x-2 active:scale-95 transition-all"
                     >
                       <RefreshCw className="w-4 h-4" />
-                      <span>Switch to {nextFresh.name || nextFresh.mobile} & Order Again</span>
+                      <span>Switch to {nextFresh.name || nextFresh.mobile} & Continue</span>
                     </button>
                   </div>
                 );
               }
               return (
                 <div className="bg-gray-50 dark:bg-gray-800/60 rounded-2xl p-3 text-center text-[11px] text-gray-500">
-                  All accounts used. Add a new account in Accounts tab to continue ordering with ₹50 Free Cash.
+                  All saved accounts have placed orders. Add a new account in Accounts tab to continue ordering.
                 </div>
               );
             })()}
@@ -882,7 +882,7 @@ export default function CartTab({
           </div>
           <div className="min-w-0">
             <h3 className="font-extrabold text-xs text-gray-900 dark:text-white truncate">
-              Delivering to {activeAddress?.annotation || activeAddress?.name || 'Friends & Family'}
+              Delivering to {activeAddress?.annotation || activeAddress?.name || 'Delivery Address'}
             </h3>
             <p className="text-[11px] text-gray-400 truncate">
               {activeAddress?.formatted_address || activeAddress?.address || 'Select an address...'}
