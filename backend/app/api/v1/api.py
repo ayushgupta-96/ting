@@ -31,6 +31,20 @@ async def get_addresses_top_level(
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
 ) -> Dict[str, Any]:
     target_mobile = mobile or x_active_mobile or ""
+    # 1. Primary: Direct official Swiggy address lookup
+    try:
+        sw_client = SwiggyDirectClient(
+            tid=authorization,
+            token=x_auth_token,
+            sid=x_session_id
+        )
+        res = await sw_client.get_addresses(mobile=target_mobile)
+        if res.get("success") and len(res.get("account_addresses", [])) > 0:
+            return res
+    except Exception as e:
+        logger.warning(f"Direct Swiggy address fetch error: {e}, falling back to ToingClient")
+
+    # 2. Fallback to ToingClient
     client = ToingClient(access_key=x_user_key, tid=authorization, token=x_auth_token, sid=x_session_id)
     return await client.get_addresses(target_mobile, force=force)
 
@@ -551,6 +565,17 @@ async def get_addresses_by_path(
     x_session_id: Optional[str] = Header(None, alias="x-session-id"),
     x_user_key: Optional[str] = Header(None, alias="x-user-key"),
 ) -> Dict[str, Any]:
+    try:
+        sw_client = SwiggyDirectClient(
+            tid=authorization,
+            token=x_auth_token,
+            sid=x_session_id
+        )
+        res = await sw_client.get_addresses(mobile=mobile)
+        if res.get("success") and len(res.get("account_addresses", [])) > 0:
+            return res
+    except Exception:
+        pass
     client = ToingClient(access_key=x_user_key, tid=authorization, token=x_auth_token, sid=x_session_id)
     return await client.get_addresses(mobile, force=force)
 

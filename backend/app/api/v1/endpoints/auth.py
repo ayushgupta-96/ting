@@ -446,4 +446,12 @@ async def get_saved_addresses(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No active mobile linked. Please link or select a session."
         )
+    try:
+        from app.services.swiggy_direct_client import SwiggyDirectClient
+        sw_client = SwiggyDirectClient()
+        res = await sw_client.get_addresses(mobile=user.active_mobile)
+        if res.get("success") and len(res.get("account_addresses", [])) > 0:
+            return res
+    except Exception:
+        pass
     return await client.get_addresses(user.active_mobile)

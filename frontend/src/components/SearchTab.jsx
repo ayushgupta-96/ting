@@ -14,9 +14,7 @@ import {
   Store, 
   Clock, 
   Star, 
-  ChevronUp,
-  Zap,
-  Sparkles
+  ChevronUp
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -77,8 +75,8 @@ export default function SearchTab({
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  const lat = activeAddress?.lat;
-  const lng = activeAddress?.lng;
+  const lat = activeAddress?.lat !== undefined && activeAddress?.lat !== null ? Number(activeAddress.lat) : 28.458901;
+  const lng = activeAddress?.lng !== undefined && activeAddress?.lng !== null ? Number(activeAddress.lng) : 77.497186;
   const mobile = activeAccount?.mobile || '';
 
   // 1. Restaurant Search Query (Maps strictly to GET /api/search/restaurants)
@@ -88,7 +86,7 @@ export default function SearchTab({
   } = useQuery({
     queryKey: ['search', debouncedQuery, lat, lng, mobile],
     queryFn: () => api.search(debouncedQuery, lat, lng, mobile),
-    enabled: !!debouncedQuery && !activeRest && !!lat && !!lng,
+    enabled: !!debouncedQuery && !activeRest && !isNaN(lat) && !isNaN(lng),
     staleTime: 1000 * 60 * 2,
   });
 
@@ -149,109 +147,7 @@ export default function SearchTab({
   const cartTotalItems = cartLines.reduce((acc, l) => acc + l.quantity, 0);
   const cartTotalPrice = cartLines.reduce((acc, l) => acc + (l.price || 0) * l.quantity, 0);
 
-  // 1-Click Smart Cart Builder (Free Cash Maximizer)
-  const handleAutoBuildSmartCart = () => {
-    if (!categories || categories.length === 0) {
-      if (onShowToast) onShowToast('info', 'No menu items available to build cart.');
-      return;
-    }
 
-    const allDishes = [];
-    categories.forEach((cat) => {
-      (cat.items || []).forEach((item) => {
-        const raw = item.price || item.base_price || 0;
-        const p = raw > 1000 ? Math.round(raw / 100) : raw;
-        if (p > 0 && item.in_stock !== false) {
-          allDishes.push({
-            ...item,
-            normalizedPrice: p,
-          });
-        }
-      });
-    });
-
-    if (allDishes.length === 0) {
-      if (onShowToast) onShowToast('error', 'No priced dishes found.');
-      return;
-    }
-
-    // 1. Look for single item in target sweet spot (₹95 - ₹115)
-    let bestSelection = null;
-    const singleIdeal = allDishes.find((d) => d.normalizedPrice >= 95 && d.normalizedPrice <= 115);
-    if (singleIdeal) {
-      bestSelection = [{ dish: singleIdeal, qty: 1 }];
-    }
-
-    // 2. Look for 2 items summing to ₹95 - ₹115
-    if (!bestSelection) {
-      for (let i = 0; i < allDishes.length; i++) {
-        for (let j = i + 1; j < allDishes.length; j++) {
-          const sum = allDishes[i].normalizedPrice + allDishes[j].normalizedPrice;
-          if (sum >= 95 && sum <= 115) {
-            bestSelection = [
-              { dish: allDishes[i], qty: 1 },
-              { dish: allDishes[j], qty: 1 },
-            ];
-            break;
-          }
-        }
-        if (bestSelection) break;
-      }
-    }
-
-    // 3. Look for 1 item with quantity 2
-    if (!bestSelection) {
-      const doubleCandidate = allDishes.find((d) => d.normalizedPrice * 2 >= 95 && d.normalizedPrice * 2 <= 120);
-      if (doubleCandidate) {
-        bestSelection = [{ dish: doubleCandidate, qty: 2 }];
-      }
-    }
-
-    // 4. Fallback: closest combination to ₹100
-    if (!bestSelection) {
-      let closestDiff = 9999;
-      allDishes.forEach((d) => {
-        const diff = Math.abs(d.normalizedPrice - 100);
-        if (diff < closestDiff) {
-          closestDiff = diff;
-          bestSelection = [{ dish: d, qty: 1 }];
-        }
-      });
-    }
-
-    if (bestSelection && bestSelection.length > 0) {
-      const newCartLines = bestSelection.map(({ dish, qty }) => ({
-        id: String(dish.id),
-        name: dish.name,
-        price: dish.normalizedPrice,
-        base_price: dish.normalizedPrice,
-        image: dish.image,
-        image_id: dish.image_id,
-        is_veg: dish.is_veg,
-        quantity: qty,
-        restaurant: {
-          id: String(activeRest?.id || ''),
-          name: activeRest?.name || '',
-          area: activeRest?.area || '',
-          image: activeRest?.image || activeRest?.cover || '',
-          sla: activeRest?.sla || '',
-        },
-      }));
-
-      const totalVal = newCartLines.reduce((acc, l) => acc + l.price * l.quantity, 0);
-      const estPayable = Math.max(1, totalVal - 100);
-
-      if (onSetCartLines) {
-        onSetCartLines(newCartLines);
-      } else {
-        newCartLines.forEach((l) => onAddToCart(l));
-      }
-
-      if (onShowToast) {
-        onShowToast('success', `✨ Smart ₹1 Cart built! Total: ₹${totalVal} (Est. to pay ~₹${estPayable})`);
-      }
-    }
-  };
 
   // Filter restaurants by restaurantFilter chip
   let filteredRestaurants = restaurants;
@@ -506,7 +402,7 @@ export default function SearchTab({
                 {filteredRestaurants.map((rest) => {
                   const ratingVal = rest.rating || '4.1';
                   const slaText = rest.sla || '30-35 mins';
-                  const areaText = rest.area || rest.city || 'Greater Noida';
+                  const areaText = rest.area || rest.city || (activeAddress?.city ? activeAddress.city : 'Nearby');
                   const distText = rest.distance || '4.2 km';
                   const cuisinesText = Array.isArray(rest.cuisines)
                     ? rest.cuisines.join(', ')
@@ -675,7 +571,7 @@ export default function SearchTab({
                     OUTLET
                   </p>
                   <h4 className="font-extrabold text-xs text-gray-900 dark:text-white truncate">
-                    {activeRest.area || 'Greater Noida'}, Noida 1
+                    {activeRest.area || activeAddress?.city || 'Selected Outlet'}
                   </h4>
                 </div>
               </div>
@@ -684,43 +580,12 @@ export default function SearchTab({
 
               <div className="text-right flex-shrink-0">
                 <p className="text-[10px] font-black text-gray-400">
-                  {activeRest.distance || '4.2 KM'}
+                  {activeRest.distance || 'Nearby'}
                 </p>
                 <p className="text-xs font-black text-gray-900 dark:text-white">
-                  {activeRest.sla || '30-35 mins'}
+                  {activeRest.sla || '25-35 mins'}
                 </p>
               </div>
-            </div>
-          </div>
-
-          {/* 2B. 1-Click Smart Cart Builder (Free Cash Maximizer) */}
-          <div className="bg-gradient-to-r from-purple-700 via-indigo-700 to-[#7C3AED] text-white rounded-3xl p-3.5 shadow-card border border-purple-400/30 space-y-2 relative overflow-hidden">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-2xl bg-white/20 flex items-center justify-center text-amber-300 flex-shrink-0 shadow-inner">
-                  <Zap className="w-5 h-5 fill-amber-300" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center space-x-1.5">
-                    <h4 className="font-black text-xs text-white truncate">⚡ Free Cash Maximizer</h4>
-                    <span className="bg-amber-400 text-gray-950 font-black text-[9px] px-1.5 py-0.2 rounded-full uppercase flex-shrink-0">
-                      PAY ₹1
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-purple-200 truncate">
-                    Auto-builds ~₹100 cart using Free Cash + BHIMNEW
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleAutoBuildSmartCart}
-                className="bg-amber-400 hover:bg-amber-300 active:scale-95 text-gray-950 font-black text-xs px-3 py-2 rounded-xl shadow-md transition-all flex items-center space-x-1 flex-shrink-0 ml-2"
-              >
-                <Sparkles className="w-3.5 h-3.5 fill-gray-950" />
-                <span>Auto-Build</span>
-              </button>
             </div>
           </div>
 
