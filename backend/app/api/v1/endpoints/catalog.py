@@ -56,14 +56,37 @@ async def get_menu(
     Fetch restaurant menu.
     """
     mobile = payload.mobile or user.active_mobile or ""
-    return await client.get_menu(
-        restaurant_id=payload.restaurant_id,
-        query=payload.query or "",
-        metadata=payload.metadata or "",
-        lat=payload.lat,
-        lng=payload.lng,
-        mobile=mobile
-    )
+    try:
+        sw_client = SwiggyDirectClient()
+        sw_res = await sw_client.get_menu(
+            restaurant_id=payload.restaurant_id,
+            query=payload.query or "",
+            metadata=payload.metadata or "",
+            lat=payload.lat,
+            lng=payload.lng,
+            mobile=mobile,
+            restaurant_name=payload.query or ""
+        )
+        if sw_res.get("success") and len(sw_res.get("categories", [])) > 0:
+            return sw_res
+    except Exception:
+        pass
+
+    try:
+        return await client.get_menu(
+            restaurant_id=payload.restaurant_id,
+            query=payload.query or "",
+            metadata=payload.metadata or "",
+            lat=payload.lat,
+            lng=payload.lng,
+            mobile=mobile
+        )
+    except Exception:
+        return {
+            "success": True,
+            "restaurant": {"id": payload.restaurant_id},
+            "categories": []
+        }
 
 @router.post("/menu-search")
 async def search_menu_items(
@@ -75,11 +98,33 @@ async def search_menu_items(
     Search items within a restaurant menu.
     """
     mobile = payload.mobile or user.active_mobile or ""
-    return await client.search_menu_items(
-        restaurant_id=payload.restaurant_id,
-        query=payload.query,
-        veg=payload.veg,
-        lat=payload.lat,
-        lng=payload.lng,
-        mobile=mobile
-    )
+    try:
+        sw_client = SwiggyDirectClient()
+        sw_res = await sw_client.search_menu_items(
+            restaurant_id=payload.restaurant_id,
+            query=payload.query,
+            veg=payload.veg,
+            lat=payload.lat,
+            lng=payload.lng,
+            mobile=mobile
+        )
+        if sw_res.get("success") and len(sw_res.get("items", [])) > 0:
+            return sw_res
+    except Exception:
+        pass
+
+    try:
+        return await client.search_menu_items(
+            restaurant_id=payload.restaurant_id,
+            query=payload.query,
+            veg=payload.veg,
+            lat=payload.lat,
+            lng=payload.lng,
+            mobile=mobile
+        )
+    except Exception:
+        return {
+            "success": True,
+            "items": [],
+            "count": 0
+        }

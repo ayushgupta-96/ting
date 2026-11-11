@@ -79,8 +79,12 @@ apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
     const isCatalogOrSearch = error.config?.url?.includes('/search') || error.config?.url?.includes('/catalog') || error.config?.url?.includes('/menu');
-    if ((error.response?.status === 401 || error.response?.status === 403) && !isCatalogOrSearch) {
-      const isCriticalAction = error.config?.url?.includes('/checkout') || error.config?.url?.includes('/order');
+    const isGetRequest = (error.config?.method || 'get').toLowerCase() === 'get';
+
+    // Never show intrusive modal dialogs on GET requests or catalog/search endpoints
+    if ((error.response?.status === 401 || error.response?.status === 403) && !isCatalogOrSearch && !isGetRequest) {
+      // Only show alert on active, user-initiated checkout mutations
+      const isCriticalAction = error.config?.url?.includes('/checkout/place') || error.config?.url?.includes('/orders/place');
       if (isCriticalAction) {
         try {
           if (WebApp?.isVersionAtLeast && WebApp.isVersionAtLeast('6.2') && typeof WebApp.showAlert === 'function') {
@@ -131,7 +135,7 @@ export const api = {
   searchRestaurants: (q, lat = 28.458901, lng = 77.497186) =>
     apiClient.get('/search', { params: { q, lat, lng } }),
   getMenu: (restaurantId, query = '', metadata = '', lat = 28.458901, lng = 77.497186, mobile = '') =>
-    apiClient.post('/menu', { restaurant_id: restaurantId, query, metadata, lat, lng, mobile }),
+    apiClient.post('/menu', { restaurant_id: restaurantId, query, metadata, lat, lng, mobile, restaurant_name: query }),
   getOutlets: (restaurantId, lat = 28.458901, lng = 77.497186, mobile = '') =>
     apiClient.post('/outlets', { restaurant_id: restaurantId, lat, lng, mobile }),
   searchMenuItems: (restaurantId, query, veg = false, lat = 28.458901, lng = 77.497186, mobile = '') =>

@@ -14,7 +14,8 @@ import {
   Store, 
   Clock, 
   Star, 
-  ChevronUp
+  ChevronUp,
+  Sparkles
 } from 'lucide-react';
 import { api } from '../services/api';
 

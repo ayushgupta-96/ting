@@ -4,8 +4,8 @@ import time
 from urllib.parse import parse_qsl
 from typing import Dict, Any
 
-# Maximum validity period for Telegram initData (24 hours to prevent replay attacks)
-MAX_AUTH_AGE_SECONDS = 86400
+# Maximum validity period for Telegram initData (30 days for mobile bot webviews)
+MAX_AUTH_AGE_SECONDS = 2592000
 
 def verify_telegram_init_data(init_data: str, bot_token: str, max_age_seconds: int = MAX_AUTH_AGE_SECONDS) -> Dict[str, Any]:
     """

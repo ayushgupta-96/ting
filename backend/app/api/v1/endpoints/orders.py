@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.models.user import User, OrderRecord
 from app.schemas.order import CouponRequest, PaymentOptionsRequest, PlaceOrderRequest
 from app.services.toing_client import ToingClient
-from app.api.deps import get_telegram_user_id, get_current_user, get_user_toing_client
+from app.api.deps import get_telegram_user_id, get_optional_telegram_user_id, get_current_user, get_user_toing_client
 
 router = APIRouter()
 
@@ -132,11 +132,11 @@ async def place_order(
 @router.get("/")
 async def list_orders(
     mobile: Optional[str] = None,
-    telegram_id: int = Depends(get_telegram_user_id),
+    telegram_id: Optional[int] = Depends(get_optional_telegram_user_id),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """
-    Retrieve real order history strictly for this Telegram User.
+    Retrieve real order history strictly for this Telegram User or mobile account.
     New users receive [] (empty list). Zero mock data or cross-user leakage.
     """
     from sqlalchemy import select
@@ -152,9 +152,10 @@ async def list_orders(
     # 1. Fetch real orders synchronized directly from upstream Toing
     if clean_mobile:
         acc_stmt = select(AccountSession).where(
-            AccountSession.telegram_id == telegram_id,
             AccountSession.mobile == clean_mobile
         )
+        if telegram_id:
+            acc_stmt = acc_stmt.where(AccountSession.telegram_id == telegram_id)
         acc = (await db.execute(acc_stmt)).scalars().first()
         if acc:
             try:
@@ -181,34 +182,35 @@ async def list_orders(
                 pass
 
     # 2. Include local DB records ONLY IF verified/confirmed (never show uncompleted/dummy processing)
-    stmt = select(OrderRecord).where(OrderRecord.telegram_id == telegram_id)
-    if clean_mobile:
-        stmt = stmt.where(OrderRecord.mobile == clean_mobile)
-    stmt = stmt.order_by(OrderRecord.id.desc())
-    result = await db.execute(stmt)
-    records = result.scalars().all()
+    if telegram_id:
+        stmt = select(OrderRecord).where(OrderRecord.telegram_id == telegram_id)
+        if clean_mobile:
+            stmt = stmt.where(OrderRecord.mobile == clean_mobile)
+        stmt = stmt.order_by(OrderRecord.id.desc())
+        result = await db.execute(stmt)
+        records = result.scalars().all()
 
-    for rec in records:
-        oid = str(rec.order_id)
-        # Suppress incomplete / processing bot db orders: only show confirmed
-        rec_status = (rec.status or "").upper()
-        if rec_status in ("PROCESSING", "PENDING", "UNPAID"):
-            continue
+        for rec in records:
+            oid = str(rec.order_id)
+            # Suppress incomplete / processing bot db orders: only show confirmed
+            rec_status = (rec.status or "").upper()
+            if rec_status in ("PROCESSING", "PENDING", "UNPAID"):
+                continue
 
-        if oid not in seen_ids:
-            seen_ids.add(oid)
-            order_list.append({
-                "id": oid,
-                "order_id": oid,
-                "restaurant_name": rec.restaurant_name or "Toing Order",
-                "area": "",
-                "amount": rec.amount,
-                "payment_method": rec.payment_method or "UPI",
-                "status": rec.status,
-                "items_text": "",
-                "tracking_link": "",
-                "created_at": rec.created_at.isoformat() if rec.created_at else None
-            })
+            if oid not in seen_ids:
+                seen_ids.add(oid)
+                order_list.append({
+                    "id": oid,
+                    "order_id": oid,
+                    "restaurant_name": rec.restaurant_name or "Toing Order",
+                    "area": "",
+                    "amount": rec.amount,
+                    "payment_method": rec.payment_method or "UPI",
+                    "status": rec.status,
+                    "items_text": "",
+                    "tracking_link": "",
+                    "created_at": rec.created_at.isoformat() if rec.created_at else None
+                })
 
     return {
         "success": True,

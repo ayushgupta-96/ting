@@ -65,6 +65,23 @@ async def get_telegram_user_id(
 
     return telegram_id
 
+async def get_optional_telegram_user_id(
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
+    x_telegram_id: Optional[str] = Header(None, alias="X-Telegram-Id"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> Optional[int]:
+    """
+    Extracts Telegram User ID if present, returning None if unauthenticated without raising 401.
+    """
+    try:
+        return await get_telegram_user_id(
+            x_telegram_init_data=x_telegram_init_data,
+            x_telegram_id=x_telegram_id,
+            authorization=authorization
+        )
+    except Exception:
+        return None
+
 async def get_current_telegram_user(
     telegram_id: int = Depends(get_telegram_user_id),
     db: AsyncSession = Depends(get_db)
