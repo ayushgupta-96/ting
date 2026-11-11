@@ -5,7 +5,7 @@ $vbsPath = Join-Path $scriptDir "run_silent.vbs"
 
 Write-Host "Registering '$taskName' in Windows Task Scheduler..." -ForegroundColor Cyan
 
-$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`""
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`"" -WorkingDirectory $scriptDir
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `

@@ -13,6 +13,18 @@ from pathlib import Path
 # Ensure backend root is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Ensure UTF-8 output even when redirected to file on Windows (cp1252)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 if sys.platform == "win32":
     import asyncio
     try:
@@ -54,9 +66,9 @@ def main():
         print(f"[+] Selected port {actual_port} is available.")
 
     print("=" * 60)
-    print(f"🚀 Launching Toing Platform Backend on http://{host}:{actual_port}")
-    print(f"📖 Swagger Docs:  http://localhost:{actual_port}/docs")
-    print(f"💓 Health Check:  http://localhost:{actual_port}/health")
+    print(f"[+] Launching Toing Platform Backend on http://{host}:{actual_port}")
+    print(f"[+] Swagger Docs:  http://localhost:{actual_port}/docs")
+    print(f"[+] Health Check:  http://localhost:{actual_port}/health")
     print("=" * 60)
 
     uvicorn.run("app.main:app", host=host, port=actual_port, reload=args.reload)

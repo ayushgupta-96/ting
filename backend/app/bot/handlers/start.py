@@ -27,18 +27,19 @@ def is_valid_telegram_webapp_url(url: str) -> bool:
         return False
     return True
 
-async def check_user_joined_channel(bot: Bot, user_id: int) -> bool:
+async def check_user_joined_channel(bot: Bot, user_id: int) -> tuple[bool, str | None]:
     """
     Verifies if user is a member of the force-join channel/group (@gupta_deals).
-    Returns True if joined (or if testing with mock tokens).
+    Returns (True, None) if joined (or if testing with mock tokens).
+    Returns (False, "admin_required" | "not_member") on failure.
     """
     channel = (settings.FORCE_JOIN_CHANNEL or "").strip()
     if not channel:
-        return True
+        return True, None
 
     # Allow mock tokens during automated test suite runs
     if settings.BOT_TOKEN in ("mock_token", "mock_bot_token"):
-        return True
+        return True, None
 
     try:
         member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
@@ -48,11 +49,14 @@ async def check_user_joined_channel(bot: Bot, user_id: int) -> bool:
             ChatMemberStatus.MEMBER,
             ChatMemberStatus.RESTRICTED,
         ):
-            return True
-        return False
+            return True, None
+        return False, "not_member"
     except Exception as e:
+        err_msg = str(e).lower()
         logger.warning(f"Error checking membership for user {user_id} in {channel}: {e}")
-        return False
+        if "admin" in err_msg or "chat_admin_required" in err_msg or "member_list_inaccessible" in err_msg:
+            return False, "admin_required"
+        return False, "not_member"
 
 def get_force_join_keyboard() -> InlineKeyboardMarkup:
     channel_link = settings.FORCE_JOIN_LINK or "https://t.me/gupta_deals"
@@ -155,7 +159,7 @@ async def cmd_start(message: types.Message):
     user_id = message.from_user.id
 
     # 1. Enforce Force-Join Channel Verification
-    is_joined = await check_user_joined_channel(message.bot, user_id)
+    is_joined, reason = await check_user_joined_channel(message.bot, user_id)
     if not is_joined:
         channel_name = settings.FORCE_JOIN_CHANNEL or "@gupta_deals"
         channel_link = settings.FORCE_JOIN_LINK or "https://t.me/gupta_deals"
@@ -169,6 +173,11 @@ async def cmd_start(message: types.Message):
             "2️⃣ Join the channel.\n"
             "3️⃣ Click <b>✅ Joined / Verify</b> to unlock the bot!"
         )
+        if reason == "admin_required":
+            text += (
+                f"\n\n<i>⚠️ Note for Admin: Make sure @toing_gbot is added as an Administrator in {channel_name} to check members.</i>"
+            )
+
         await message.answer(
             text,
             reply_markup=get_force_join_keyboard(),
@@ -190,7 +199,7 @@ async def callback_verify_force_join(query: types.CallbackQuery):
     user_id = query.from_user.id
     user_name = query.from_user.first_name or "User"
 
-    is_joined = await check_user_joined_channel(query.bot, user_id)
+    is_joined, reason = await check_user_joined_channel(query.bot, user_id)
     if is_joined:
         await query.answer("🎉 Verification successful! Welcome to toing G.", show_alert=False)
         await send_welcome_store(
@@ -199,6 +208,12 @@ async def callback_verify_force_join(query: types.CallbackQuery):
             bot=query.bot,
             chat_id=query.message.chat.id,
             is_edit=True
+        )
+    elif reason == "admin_required":
+        await query.answer(
+            "⚠️ Bot Needs Admin Rights:\n\n"
+            "Please add @toing_gbot as an Admin in @gupta_deals so Telegram allows it to check members!",
+            show_alert=True
         )
     else:
         channel_name = settings.FORCE_JOIN_CHANNEL or "@gupta_deals"
