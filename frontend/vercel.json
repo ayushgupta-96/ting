@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://storelex.store/toing_web/api/:path*"
+    },
+    {
       "source": "/api/v1/:path*",
-      "destination": "https://trader-willow-behavior-hamilton.trycloudflare.com/api/v1/:path*"
+      "destination": "https://storelex.store/toing_web/api/:path*"
     },
     {
       "source": "/(.*)",

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import WebApp from '@twa-dev/sdk';
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE,
@@ -74,65 +74,90 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor for session expiration
+// Response interceptor for error handling
 apiClient.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 403) {
-      try {
-        if (WebApp?.isVersionAtLeast && WebApp.isVersionAtLeast('6.2') && typeof WebApp.showAlert === 'function') {
-          WebApp.showAlert('Session expired or unauthorized. Please login again.');
-        }
-      } catch (e) {}
-    }
     return Promise.reject(error);
   }
 );
 
 export const api = {
   // Auth & Accounts
-  jsonLogin: (credentials) => apiClient.post('/auth/json-login', credentials),
-  getSavedAccounts: () => apiClient.get('/auth/accounts'),
+  jsonLogin: (credentials) => apiClient.post('/login/json', credentials),
+  getSavedAccounts: async () => {
+    try {
+      const res = await apiClient.get('/sessions');
+      if (res && res.sessions) {
+        return {
+          success: true,
+          count: res.sessions.length,
+          accounts: res.sessions.map((s, idx) => ({
+            id: s.mobile || String(idx),
+            mobile: s.mobile,
+            phone: `+91 ${s.mobile}`,
+            name: s.name && s.name.trim() ? s.name.trim() : `User ${s.mobile ? s.mobile.slice(-4) : idx}`,
+            status: s.is_expired ? 'used' : (s.status || 'fresh'),
+            is_expired: !!s.is_expired,
+            tid: s.tid || '',
+            token: s.token || '',
+            sid: s.sid || '',
+            deviceId: s.deviceId || s.android_id || '',
+            customerId: s.customerId || s.user_id || ''
+          }))
+        };
+      }
+      return res;
+    } catch (e) {
+      return apiClient.get('/auth/accounts');
+    }
+  },
   toggleAccountStatus: (id) => apiClient.post('/auth/toggle-status', { id }),
   deleteAccount: (id) => apiClient.delete(`/auth/accounts/${id}`),
 
-  validateWebapp: (initData) => apiClient.post('/auth/validate', { init_data: initData }),
-  getWallet: () => apiClient.get('/auth/me'),
-  getSessions: () => apiClient.get('/auth/sessions'),
+  validateWebapp: (initData) => apiClient.post('/auth/validate_webapp', { init_data: initData }),
+  getWallet: () => apiClient.get('/me'),
+  getSessions: () => apiClient.get('/sessions'),
   switchSession: (mobile) => apiClient.post('/auth/switch-session', { mobile }),
-  getAddresses: (mobile, force = false) => apiClient.get('/addresses', { params: { mobile, force } }),
-  addAddress: (payload) => apiClient.post('/addresses', payload),
-  deleteAddress: (id) => apiClient.delete(`/addresses/${id}`),
+  getAddresses: async (mobile, force = false) => {
+    if (mobile) {
+      return apiClient.get(`/addresses/${mobile}`, { params: { force } });
+    }
+    return apiClient.get('/addresses', { params: { force } });
+  },
+  addAddress: (payload) => apiClient.post('/addresses/add', payload),
+  deleteAddress: (id, mobile) => apiClient.post('/addresses/delete', { id, mobile }),
   saveAddressLink: (link, mobile) => apiClient.post('/addresses/add_link', { link, mobile }),
   addAddressLink: (link, mobile) => apiClient.post('/addresses/add_link', { link, mobile }),
   reverseGeocode: (lat, lng, mobile) => apiClient.get('/location/reverse', { params: { lat, lng, mobile } }),
 
   // Orders & Checkout
-  getOrders: (mobile) => apiClient.get('/orders', { params: { mobile } }),
+  getOrders: (mobile) => apiClient.get('/orders_recent', { params: { mobile } }),
   getBestCoupon: (payload) => apiClient.post('/checkout/best_coupon', payload),
+  fetchCoupons: (payload) => apiClient.post('/checkout/coupons', payload),
   applyCoupon: (payload) => apiClient.post('/checkout/apply_coupon', payload),
   getPaymentOptions: (payload) => apiClient.post('/checkout/payment_options', payload),
   placeOrder: (payload) => apiClient.post('/checkout/place', payload),
   getPaymentStatus: (payload) => apiClient.post('/checkout/payment_status', payload),
   getOrderStatus: (payload) => apiClient.post('/checkout/order_status', payload),
-  sendPaylog: (payload) => apiClient.post('/checkout/paylog', payload),
+  sendPaylog: (payload) => apiClient.post('/paylog', payload),
   getRecentOrders: (minutes = 60, live = false) => apiClient.get('/orders_recent', { params: { minutes, live } }),
   getOrderDetail: (mobile, orderId) => apiClient.get(`/order_detail/${mobile}/${orderId}`),
 
   // Catalog & Search
-  search: (q, lat = 28.458901, lng = 77.497186, mobile = '') =>
-    apiClient.get('/search', { params: { q, lat, lng, mobile } }),
-  searchRestaurants: (q, lat = 28.458901, lng = 77.497186) =>
-    apiClient.get('/search', { params: { q, lat, lng } }),
-  getMenu: (restaurantId, query = '', metadata = '', lat = 28.458901, lng = 77.497186, mobile = '') =>
-    apiClient.post('/menu', { restaurant_id: restaurantId, query, metadata, lat, lng, mobile }),
-  getOutlets: (restaurantId, lat = 28.458901, lng = 77.497186, mobile = '') =>
-    apiClient.post('/outlets', { restaurant_id: restaurantId, lat, lng, mobile }),
-  searchMenuItems: (restaurantId, query, veg = false, lat = 28.458901, lng = 77.497186, mobile = '') =>
-    apiClient.post('/menu-search', { restaurant_id: restaurantId, query, veg, lat, lng, mobile }),
+  search: (q, lat = 28.4543533, lng = 77.5015833, mobile = '') =>
+    apiClient.get('/search/restaurants', { params: { q, lat, lng, mobile } }),
+  searchRestaurants: (q, lat = 28.4543533, lng = 77.5015833) =>
+    apiClient.get('/search/restaurants', { params: { q, lat, lng } }),
+  getMenu: (restaurantId, query = '', metadata = '', lat = 28.4543533, lng = 77.5015833, mobile = '') =>
+    apiClient.post('/search/menu', { restaurant_id: restaurantId, query, metadata, lat, lng, mobile }),
+  getOutlets: (restaurantId, lat = 28.4543533, lng = 77.5015833, mobile = '') =>
+    apiClient.post('/search/outlets', { restaurant_id: restaurantId, lat, lng, mobile }),
+  searchMenuItems: (restaurantId, query, veg = false, lat = 28.4543533, lng = 77.5015833, mobile = '') =>
+    apiClient.post('/search/menu_search', { restaurant_id: restaurantId, query, veg, lat, lng, mobile }),
 
   // Cart
-  calculateCart: (payload) => apiClient.post('/cart/calculate', payload),
+  calculateCart: (payload) => apiClient.post('/search/cart', payload),
   addAddressToAccount: (payload) => apiClient.post('/cart/add_address_to_account', payload),
   getCartState: () => apiClient.get('/cart/state'),
   syncCartState: (cart, loc) => apiClient.put('/cart/state', { cart, loc }),

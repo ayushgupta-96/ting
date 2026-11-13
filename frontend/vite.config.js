@@ -9,9 +9,35 @@ export default defineConfig({
     host: true,
     allowedHosts: true,
     proxy: {
+      '/api/v1': {
+        target: 'https://storelex.store/toing_web/api',
+        rewrite: (path) => path.replace(/^\/api\/v1/, ''),
+        changeOrigin: true,
+        secure: false,
+      },
       '/api': {
-        target: 'http://127.0.0.1:8001',
-        changeOrigin: true
+        target: 'https://storelex.store/toing_web/api',
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  },
+  preview: {
+    port: 5173,
+    host: true,
+    proxy: {
+      '/api/v1': {
+        target: 'https://storelex.store/toing_web/api',
+        rewrite: (path) => path.replace(/^\/api\/v1/, ''),
+        changeOrigin: true,
+        secure: false,
+      },
+      '/api': {
+        target: 'https://storelex.store/toing_web/api',
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        changeOrigin: true,
+        secure: false,
       }
     }
   }
